@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>痛车工作室 - Itasha Studio</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="logo">痛车工作室 <span class="sub">Itasha Studio · Demo</span></div>
+      <div id="viewTabs">
+        <button class="view-tab" data-view="front">正前</button>
+        <button class="view-tab" data-view="right">右侧</button>
+        <button class="view-tab" data-view="rear">正后</button>
+        <button class="view-tab" data-view="left">左侧</button>
+        <button class="view-tab active" data-view="orbit">360 预览</button>
+      </div>
+      <div class="top-actions">
+        <button id="btnUndo" class="btn ghost" title="撤销 (Ctrl+Z)" disabled>撤销</button>
+        <button id="btnRedo" class="btn ghost" title="重做 (Ctrl+Shift+Z)" disabled>重做</button>
+        <button id="btnExport" class="btn ghost">导出 PNG</button>
+        <button id="btnExportMulti" class="btn ghost">多视图导出</button>
+      </div>
+    </header>
+
+    <main id="workspace">
+      <!-- 左侧工具面板 -->
+      <aside id="leftPanel">
+        <section class="panel-block" id="maskPanel">
+          <h3>可编辑区域</h3>
+          <div class="row">
+            <button id="btnMaskMode" class="btn">遮罩编辑</button>
+            <button id="btnEdgeOverlay" class="btn ghost">边缘叠加</button>
+          </div>
+          <div class="hint">先为每个视角生成遮罩，再贴图。遮罩决定立绘 / 拉花能显示在车的哪些部位。</div>
+        </section>
+
+        <section class="panel-block" id="maskTools" style="display:none">
+          <h3>遮罩工具</h3>
+          <div class="tool-grid">
+            <button class="btn tool active" data-tool="brush" title="画笔：加入可编辑区域">画笔</button>
+            <button class="btn tool" data-tool="eraser" title="橡皮：移除可编辑区域">橡皮</button>
+            <button class="btn tool" data-tool="wand" title="魔棒：点击选取相似区域">魔棒</button>
+          </div>
+          <div class="tool-grid" id="wandModeRow" style="display:none">
+            <button class="btn tool active" data-wmode="add" title="点击魔棒时把区域加入可编辑区">魔棒加选</button>
+            <button class="btn tool" data-wmode="subtract" title="点击魔棒时把区域从可编辑区排除">魔棒排除</button>
+          </div>
+          <label class="slider-row">笔刷大小 <input id="brushSize" type="range" min="4" max="120" value="32" /><span id="brushSizeVal">32</span></label>
+          <label class="slider-row">魔棒容差 <input id="wandTolerance" type="range" min="4" max="120" value="32" /><span id="wandToleranceVal">32</span></label>
+          <label class="slider-row">剔轮灵敏度 <input id="wheelSensitivity" type="range" min="20" max="90" value="55" /><span id="wheelSensitivityVal">55</span></label>
+          <div class="row">
+            <button id="btnAutoEdge" class="btn">边缘检测生成</button>
+            <button id="btnAutoAlpha" class="btn ghost">Alpha 生成</button>
+          </div>
+          <div class="row">
+            <button id="btnMaskClear" class="btn ghost">清空</button>
+            <button id="btnMaskInvert" class="btn ghost">反相</button>
+          </div>
+          <div class="hint">左键操作，按住 Alt 反向（魔棒/画笔均可）。车窗、车顶缝隙易被误选：用「魔棒排除」点一下即可剔除。完成后点「完成」返回。</div>
+          <button id="btnMaskDone" class="btn primary wide">完成</button>
+        </section>
+
+        <section class="panel-block">
+          <h3>AI 抠图 <span class="tag">remove.bg</span></h3>
+          <div class="field-col">
+            <span class="field-label">API Key（每月 50 次免费，仅存本地浏览器）</span>
+            <input id="removeBgKey" type="password" placeholder="粘贴 remove.bg API Key" />
+          </div>
+          <div class="row">
+            <button id="btnSaveKey" class="btn small">保存 Key</button>
+            <button id="btnQueryCredits" class="btn small ghost">查询剩余额度</button>
+          </div>
+          <div class="hint" id="creditsInfo">在 remove.bg 免费注册获取 Key 后填入。选中图层后点「AI 抠图」去除背景。</div>
+        </section>
+
+        <section class="panel-block">
+          <h3>添加图层 <span class="tag" id="layerScopeLabel">当前视角</span></h3>
+          <div class="row">
+            <button id="btnAddBg" class="btn">背景</button>
+            <button id="btnAddArt" class="btn">立绘</button>
+            <button id="btnAddLivery" class="btn">拉花</button>
+          </div>
+          <div class="hint">支持 PNG / JPG / WebP / SVG。立绘与拉花默认裁剪到可编辑区域，背景置于车底。</div>
+          <div class="row">
+            <button id="btnSyncLayers" class="btn ghost wide" title="把当前视角的全部图层复制到其他三个视角">同步图层到全部视角</button>
+          </div>
+        </section>
+      </aside>
+
+      <!-- 中央画布 -->
+      <div id="canvasWrap">
+        <canvas id="mainCanvas"></canvas>
+        <div id="canvasHud">
+          <span id="hudAngle"></span>
+          <span id="hudHint"></span>
+        </div>
+        <div id="orbitBar">
+          <button id="btnPlay" class="btn small" title="自动旋转">播放</button>
+          <input id="orbitSlider" type="range" min="0" max="35" value="4" />
+          <span id="orbitLabel">帧 05 · 正前 0°</span>
+        </div>
+      </div>
+
+      <!-- 右侧图层面板 -->
+      <aside id="rightPanel">
+        <section class="panel-block grow">
+          <h3>图层（车面）</h3>
+          <ul id="layerListTop" class="layer-list"></ul>
+          <h3>图层（车底 / 背景）</h3>
+          <ul id="layerListBg" class="layer-list"></ul>
+          <button id="btnClearCache" class="btn ghost wide" title="清空浏览器缓存的所有图层与遮罩">清空缓存</button>
+        </section>
+        <section class="panel-block" id="layerProps">
+          <h3>选中图层属性</h3>
+          <div id="noLayerSelected" class="hint">点击画布或列表中的图层进行选择。</div>
+          <div id="layerPropBody" style="display:none">
+            <label class="slider-row">不透明度 <input id="propOpacity" type="range" min="0" max="100" value="100" /><span id="propOpacityVal">100</span></label>
+            <label class="slider-row">缩放 <input id="propScale" type="range" min="5" max="300" value="100" /><span id="propScaleVal">100</span></label>
+            <label class="slider-row">旋转 <input id="propRotation" type="range" min="-180" max="180" value="0" /><span id="propRotationVal">0</span></label>
+            <label class="check-row"><input id="propClip" type="checkbox" checked /> 裁剪到可编辑区域</label>
+            <div class="row">
+              <button id="btnLayerUp" class="btn small">上移</button>
+              <button id="btnLayerDown" class="btn small">下移</button>
+              <button id="btnLayerDel" class="btn small danger">删除</button>
+            </div>
+            <div class="row">
+              <button id="btnLayerFlip" class="btn small">水平翻转</button>
+              <button id="btnLayerRestore" class="btn small" style="display:none">还原抠图</button>
+            </div>
+            <div class="row">
+              <button id="btnLayerQuickCut" class="btn small">快速抠图（纯色背景）</button>
+              <button id="btnLayerRemoveBg" class="btn small">AI 抠图（remove.bg）</button>
+              <button id="btnLayerRemoveBgLocal" class="btn small">本地 AI 抠图</button>
+            </div>
+            <label class="slider-row">快速抠图容差 <input id="quickTol" type="range" min="10" max="120" value="42" /><span id="quickTolVal">42</span></label>
+            <div class="hint">画布内拖动移动，角柄缩放，顶部柄旋转，Delete 删除。纯色/白底立绘优先用「快速抠图」，复杂背景用 remove.bg 或本地 AI（首次需下载约 180MB 模型）。</div>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <input type="file" id="fileInput" accept="image/*" style="display:none" />
+  </div>
+  <div id="toast"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
