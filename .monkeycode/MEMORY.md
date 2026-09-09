@@ -33,3 +33,20 @@ This file records user instructions, preferences, and teachings for reference in
   - 自动遮罩流程：Sobel+Otsu(与 maxMag*0.08 取小) 边缘墙 + alpha 先验 -> 外部洪泛 -> 车体 -> 暗色组件剔除（灵敏度滑块 20-90 映射 darkT = bodyLuma*(1.05-s*0.01)）-> 闭运算填门缝 -> 保留面积 >=5% 的组件
   - 剔除判定：接触遮罩底部且平均亮度 < bodyLuma*0.75，或大面积且平均亮度 < darkT
   - 车窗默认被剔除（深色大面积），后窗贴纸需求由用户画笔手动加回
+
+[Project Knowledge Summary]
+- Date: 2026-09-09
+- Context: Agent 实现并 E2E 验证 undo/redo 命令栈（history.ts）
+- Category: Build Methods
+- Instructions:
+  - Playwright 对同一 input 多次 setInputFiles 相同文件时 change 可能不触发，测试脚本需先 evaluate 清空 fileInput.value 再 setInputFiles
+  - E2E 像素断言选特征前先确认目标区域的实际颜色：白色车体区域 B-R 约为 0，用紫色(B-R>40)特征会漏检，应改用白色(R/G/B>190)特征
+  - git 误提交 node_modules/dist 后的修复路径：git rm -r --cached <dir> + git commit --amend + push --force-with-lease（仅限个人仓库、已同步的最近一次提交）
+
+[Project Knowledge Summary]
+- Date: 2026-09-09
+- Context: 用户要求补充 .gitignore 并修复历史提交
+- Category: Workflow & Collaboration
+- Instructions:
+  - 本仓库提交前必须检查 .gitignore 生效：node_modules/、dist/、assets/（旧车图副本目录）一律不入库
+  - 用户对本地个人仓库的历史修正持授权态度（能修就修），改写已 push 历史时使用 force-with-lease
