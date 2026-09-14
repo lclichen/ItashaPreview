@@ -50,3 +50,10 @@ This file records user instructions, preferences, and teachings for reference in
 - Instructions:
   - 本仓库提交前必须检查 .gitignore 生效：node_modules/、dist/、assets/（旧车图副本目录）一律不入库
   - 用户对本地个人仓库的历史修正持授权态度（能修就修），改写已 push 历史时使用 force-with-lease
+
+[Project Knowledge Summary]
+- Date: 2026-09-14
+- Context: E2E 验证 IndexedDB 图层缓存恢复时发现 reload 后图层"丢失"
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - IndexedDB 持久化链路是 markDirty -> 800ms debounce -> persistAll（内部 blob 序列化异步）：E2E 中上传图层后到 reload 之间必须等待 >=2s，否则事务未完成数据未落盘，属测试时序问题而非产品缺陷
