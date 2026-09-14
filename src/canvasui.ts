@@ -64,12 +64,7 @@ function pickLayer(ix: number, iy: number): Layer | null {
   const layers = currentView().layers;
   for (let i = layers.length - 1; i >= 0; i--) {
     const l = layers[i];
-    if (l.kind === 'background' || !l.visible) continue;
-    if (hitLayer(l, ix, iy)) return l;
-  }
-  for (let i = layers.length - 1; i >= 0; i--) {
-    const l = layers[i];
-    if (l.kind !== 'background' || !l.visible) continue;
+    if (l.kind === 'car' || !l.visible) continue;
     if (hitLayer(l, ix, iy)) return l;
   }
   return null;

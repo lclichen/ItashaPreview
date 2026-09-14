@@ -230,7 +230,18 @@ input[type="range"] { accent-color: var(--accent); }
   font-size: 13px; padding: 2px;
 }
 .layer-item .eye.off { opacity: .35; }
-.layer-empty { color: var(--text-dim); font-size: 11px; padding: 4px 2px; }
+.layer-item.car { opacity: .75; border-style: dashed; cursor: default; }
+.layer-item.car .name { color: var(--text-dim); }
+.updown {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 3px;
+  line-height: 1;
+}
+.updown:hover { color: var(--accent); }
 
 /* toast */
 #toast {

@@ -1,6 +1,6 @@
 export type ViewKey = 'front' | 'right' | 'rear' | 'left';
 export type Mode = 'orbit' | 'edit' | 'mask';
-export type LayerKind = 'background' | 'art' | 'livery';
+export type LayerKind = 'car' | 'background' | 'art' | 'livery';
 export type MaskTool = 'brush' | 'eraser' | 'wand';
 
 export interface Transform {

@@ -1,4 +1,5 @@
 import type { Layer, ViewKey } from './types';
+import { makeCarLayer } from './carlayer';
 
 const DB_NAME = 'itasha-studio';
 const DB_VERSION = 1;
@@ -13,7 +14,7 @@ interface StoredLayer {
   clipToMask: boolean;
   flipX: boolean;
   transform: Layer['transform'];
-  imgBlob: Blob;
+  imgBlob: Blob | null;
 }
 
 interface StoredView {
@@ -61,7 +62,20 @@ function blobToImage(blob: Blob): Promise<HTMLImageElement> {
 
 const imgBlobCache = new WeakMap<HTMLImageElement, Blob>();
 
-async function serializeLayer(layer: Layer): Promise<StoredLayer> {
+async function serializeLayer(layer: Layer): Promise<StoredLayer | null> {
+  if (layer.kind === 'car') {
+    return {
+      id: layer.id,
+      name: layer.name,
+      kind: layer.kind,
+      visible: true,
+      opacity: 1,
+      clipToMask: false,
+      flipX: false,
+      transform: { ...layer.transform },
+      imgBlob: null,
+    };
+  }
   let blob = imgBlobCache.get(layer.img);
   if (!blob) {
     blob = await imageToBlob(layer.img);
@@ -96,7 +110,7 @@ async function persistAll(
   const records: [ViewKey, StoredView][] = [];
   for (const vk of VIEWS) {
     const v = views[vk];
-    const layers = await Promise.all(v.layers.map(serializeLayer));
+    const layers = (await Promise.all(v.layers.map(serializeLayer))).filter((s): s is StoredLayer => s !== null);
     const maskBlob = v.mask ? await canvasToBlob(v.mask) : null;
     records.push([vk, { layers, maskBlob }]);
   }
@@ -136,16 +150,22 @@ export async function loadAll(): Promise<Record<ViewKey, { layers: Layer[]; mask
       req.onerror = () => reject(req.error);
     });
     const result = {
-      front: { layers: [] as Layer[], mask: null as HTMLCanvasElement | null },
-      right: { layers: [] as Layer[], mask: null as HTMLCanvasElement | null },
-      rear: { layers: [] as Layer[], mask: null as HTMLCanvasElement | null },
-      left: { layers: [] as Layer[], mask: null as HTMLCanvasElement | null },
+      front: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
+      right: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
+      rear: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
+      left: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
     } as Record<ViewKey, { layers: Layer[]; mask: HTMLCanvasElement | null }>;
     for (const vk of VIEWS) {
       const sv = raw[vk];
       if (!sv) continue;
+      result[vk].layers = [];
       for (const sl of sv.layers) {
+        if (sl.kind === 'car') {
+          result[vk].layers.push(makeCarLayer());
+          continue;
+        }
         try {
+          if (!sl.imgBlob) continue;
           const img = await blobToImage(sl.imgBlob);
           result[vk].layers.push({
             id: sl.id,

@@ -4,7 +4,8 @@ import { getRemoveBgKey, setRemoveBgKey, removeBgBlob, removeBgLocal, queryCredi
 import { clearAll } from './store';
 import { commitAddLayer, commitRemoveLayer, commitReorderLayer, commitLayerProps, commitTransform, commitViewsSnapshot, runMaskMutation, undo, redo, canUndo, canRedo, snapshotView } from './history';
 import type { Transform } from './types';
-import { invalidateEdgeOverlay, toImageSpace } from './render';
+import { invalidateEdgeOverlay, toImageSpace, drawStack } from './render';
+import { CAR_ID } from './carlayer';
 import type { Layer, LayerKind, ViewKey } from './types';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -22,7 +23,7 @@ function toast(msg: string, isError = false): void {
 }
 
 function kindLabel(kind: LayerKind): string {
-  return kind === 'background' ? '背景' : kind === 'art' ? '立绘' : '拉花';
+  return kind === 'background' ? '背景' : kind === 'art' ? '立绘' : kind === 'car' ? '车体' : '拉花';
 }
 
 function ensureMask(viewKey: ViewKey, force = false): void {
@@ -58,8 +59,11 @@ async function onFileChosen(): Promise<void> {
   try {
     const img = await loadImg(src);
     const layer = makeLayer(pendingKind, img, file.name.replace(/\.[^.]+$/, ''));
-    currentView().layers.push(layer);
-    commitAddLayer(state.currentView, layer, currentView().layers.length - 1);
+    const layers = currentView().layers;
+    const carIdx = layers.findIndex((l) => l.kind === 'car');
+    const idx = pendingKind === 'background' && carIdx >= 0 ? carIdx : layers.length;
+    layers.splice(idx, 0, layer);
+    commitAddLayer(state.currentView, layer, idx);
     state.selectedLayerId = layer.id;
     renderLayerList();
     refreshProps();
@@ -88,11 +92,8 @@ function moveLayer(id: string, dir: -1 | 1): void {
   const view = currentView();
   const idx = view.layers.findIndex((l) => l.id === id);
   if (idx < 0) return;
-  const sameGroup = view.layers.filter((l) => (l.kind === 'background') === (view.layers[idx].kind === 'background'));
-  const groupIdx = sameGroup.indexOf(view.layers[idx]);
-  const swapWith = sameGroup[groupIdx + dir];
-  if (!swapWith) return;
-  const j = view.layers.indexOf(swapWith);
+  const j = idx + dir;
+  if (j < 0 || j >= view.layers.length) return;
   [view.layers[idx], view.layers[j]] = [view.layers[j], view.layers[idx]];
   commitReorderLayer(state.currentView, idx, j);
   renderLayerList();
@@ -101,59 +102,67 @@ function moveLayer(id: string, dir: -1 | 1): void {
 
 function renderLayerList(): void {
   const view = currentView();
-  const topUl = $('layerListTop') as HTMLUListElement;
-  const bgUl = $('layerListBg') as HTMLUListElement;
-  topUl.innerHTML = '';
-  bgUl.innerHTML = '';
-  const topLayers = view.layers.filter((l) => l.kind !== 'background');
-  const bgLayers = view.layers.filter((l) => l.kind === 'background');
-  const fill = (ul: HTMLUListElement, layers: Layer[]) => {
-    if (layers.length === 0) {
-      const li = document.createElement('li');
-      li.className = 'layer-empty';
-      li.textContent = '（空）';
+  const ul = $('layerList') as HTMLUListElement;
+  ul.innerHTML = '';
+  const carFrame = state.frames[ORTHO_FRAME_1BASED[state.currentView] - 1];
+  for (let i = view.layers.length - 1; i >= 0; i--) {
+    const l = view.layers[i];
+    const li = document.createElement('li');
+    const isCar = l.kind === 'car';
+    li.className = 'layer-item' + (isCar ? ' car' : '') + (l.id === state.selectedLayerId ? ' selected' : '');
+    const thumb = document.createElement('div');
+    thumb.className = 'thumb';
+    const timg = document.createElement('img');
+    timg.src = isCar ? (carFrame ? carFrame.src : '') : l.img.src;
+    thumb.appendChild(timg);
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = l.name;
+    const kind = document.createElement('span');
+    kind.className = 'kind';
+    kind.textContent = isCar ? '车体' : kindLabel(l.kind);
+    li.append(thumb, name, kind);
+    if (isCar) {
       ul.appendChild(li);
-      return;
+      continue;
     }
-    for (let i = layers.length - 1; i >= 0; i--) {
-      const l = layers[i];
-      const li = document.createElement('li');
-      li.className = 'layer-item' + (l.id === state.selectedLayerId ? ' selected' : '');
-      const thumb = document.createElement('div');
-      thumb.className = 'thumb';
-      const timg = document.createElement('img');
-      timg.src = l.img.src;
-      thumb.appendChild(timg);
-      const name = document.createElement('span');
-      name.className = 'name';
-      name.textContent = l.name;
-      const kind = document.createElement('span');
-      kind.className = 'kind';
-      kind.textContent = kindLabel(l.kind);
-      const eye = document.createElement('button');
-      eye.className = 'eye' + (l.visible ? '' : ' off');
-      eye.textContent = l.visible ? '◉' : '○';
-      eye.title = '显示 / 隐藏';
-      eye.onclick = (e) => {
-        e.stopPropagation();
-        const before = l.visible;
-        l.visible = !l.visible;
-        commitLayerProps(state.currentView, l.id, { visible: before }, { visible: l.visible }, '切换显示');
-        renderLayerList();
-        markDirty();
-      };
-      li.append(thumb, name, kind, eye);
-      li.onclick = () => {
-        state.selectedLayerId = l.id;
-        renderLayerList();
-        refreshProps();
-        markDirty();
-      };
-      ul.appendChild(li);
-    }
-  };
-  fill(topUl, topLayers);
-  fill(bgUl, bgLayers);
+    const eye = document.createElement('button');
+    eye.className = 'eye' + (l.visible ? '' : ' off');
+    eye.textContent = l.visible ? '◉' : '○';
+    eye.title = '显示 / 隐藏';
+    eye.onclick = (e) => {
+      e.stopPropagation();
+      const before = l.visible;
+      l.visible = !l.visible;
+      commitLayerProps(state.currentView, l.id, { visible: before }, { visible: l.visible }, '切换显示');
+      renderLayerList();
+      markDirty();
+    };
+    const up = document.createElement('button');
+    up.className = 'updown';
+    up.textContent = '↑';
+    up.title = '上移一层（更靠前）';
+    up.onclick = (e) => {
+      e.stopPropagation();
+      moveLayer(l.id, 1);
+    };
+    const down = document.createElement('button');
+    down.className = 'updown';
+    down.textContent = '↓';
+    down.title = '下移一层（更靠后）';
+    down.onclick = (e) => {
+      e.stopPropagation();
+      moveLayer(l.id, -1);
+    };
+    li.append(up, down, eye);
+    li.onclick = () => {
+      state.selectedLayerId = l.id;
+      renderLayerList();
+      refreshProps();
+      markDirty();
+    };
+    ul.appendChild(li);
+  }
 }
 
 function refreshProps(): void {
@@ -220,24 +229,7 @@ function exportPng(): void {
   const frameIdx = state.mode === 'orbit' ? state.orbitFrame : ORTHO_FRAME_1BASED[state.currentView] - 1;
   const frame = state.frames[frameIdx];
   if (!frame) return;
-  for (const l of view.layers) {
-    if (l.kind === 'background' && l.visible) drawExportLayer(ctx, l, null);
-  }
-  ctx.drawImage(frame, 0, 0, 1200, 800);
-  const clipLayers = view.layers.filter((l) => l.kind !== 'background' && l.visible && l.clipToMask && view.mask);
-  const freeLayers = view.layers.filter((l) => l.kind !== 'background' && l.visible && !l.clipToMask);
-  if (clipLayers.length > 0 && view.mask) {
-    const comp = document.createElement('canvas');
-    comp.width = 1200;
-    comp.height = 800;
-    const cctx = comp.getContext('2d')!;
-    for (const l of clipLayers) drawExportLayer(cctx, l, null);
-    cctx.globalCompositeOperation = 'destination-in';
-    cctx.drawImage(view.mask, 0, 0);
-    cctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(comp, 0, 0);
-  }
-  for (const l of freeLayers) drawExportLayer(ctx, l, null);
+  drawStack(ctx, view, frameIdx);
   out.toBlob((blob) => {
     if (!blob) return;
     const a = document.createElement('a');
@@ -248,20 +240,6 @@ function exportPng(): void {
   });
 }
 
-function drawExportLayer(ctx: CanvasRenderingContext2D, layer: Layer, _mask: null): void {
-  const img = layer.img;
-  const iw = img.naturalWidth || img.width;
-  const ih = img.naturalHeight || img.height;
-  const t = layer.transform;
-  ctx.save();
-  ctx.globalAlpha = layer.opacity;
-  ctx.translate(t.x, t.y);
-  ctx.rotate((t.rotation * Math.PI) / 180);
-  ctx.scale(t.scale * (layer.flipX ? -1 : 1), t.scale);
-  ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
-  ctx.restore();
-}
-
 function renderViewFrame(viewKey: ViewKey, frameIdx0: number): HTMLCanvasElement {
   const out = document.createElement('canvas');
   out.width = 1200;
@@ -270,24 +248,7 @@ function renderViewFrame(viewKey: ViewKey, frameIdx0: number): HTMLCanvasElement
   const view = state.views[viewKey];
   const frame = state.frames[frameIdx0];
   if (!frame || !view) return out;
-  for (const l of view.layers) {
-    if (l.kind === 'background' && l.visible) drawExportLayer(ctx, l, null);
-  }
-  ctx.drawImage(frame, 0, 0, 1200, 800);
-  const clipLayers = view.layers.filter((l) => l.kind !== 'background' && l.visible && l.clipToMask && view.mask);
-  const freeLayers = view.layers.filter((l) => l.kind !== 'background' && l.visible && !l.clipToMask);
-  if (clipLayers.length > 0 && view.mask) {
-    const comp = document.createElement('canvas');
-    comp.width = 1200;
-    comp.height = 800;
-    const cctx = comp.getContext('2d')!;
-    for (const l of clipLayers) drawExportLayer(cctx, l, null);
-    cctx.globalCompositeOperation = 'destination-in';
-    cctx.drawImage(view.mask, 0, 0);
-    cctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(comp, 0, 0);
-  }
-  for (const l of freeLayers) drawExportLayer(ctx, l, null);
+  drawStack(ctx, view, frameIdx0);
   return out;
 }
 

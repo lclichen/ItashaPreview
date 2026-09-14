@@ -1,5 +1,6 @@
 import type { Layer, ViewState, ViewKey } from './types';
 import { queuePersistAll } from './store';
+import { makeCarLayer } from './carlayer';
 
 export const IMG_W = 1200;
 export const IMG_H = 800;
@@ -46,7 +47,7 @@ export function uid(): string {
 }
 
 function initView(): ViewState {
-  return { layers: [], mask: null, maskTouched: false };
+  return { layers: [makeCarLayer()], mask: null, maskTouched: false };
 }
 
 export const state = {

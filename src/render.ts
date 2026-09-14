@@ -9,6 +9,11 @@ compCanvas.width = IMG_W;
 compCanvas.height = IMG_H;
 const compCtx = compCanvas.getContext('2d')!;
 
+const clipCanvas = document.createElement('canvas');
+clipCanvas.width = IMG_W;
+clipCanvas.height = IMG_H;
+const clipCtx = clipCanvas.getContext('2d')!;
+
 let vt: ViewTransform = { scale: 1, offsetX: 0, offsetY: 0 };
 let edgeOverlay: HTMLCanvasElement | null = null;
 let edgeOverlayFor: string | null = null;
@@ -75,38 +80,40 @@ function drawLayerLocal(c: CanvasRenderingContext2D, layer: Layer): void {
   c.restore();
 }
 
-function splitLayers(): { bg: Layer[]; top: Layer[] } {
-  const layers = currentView().layers;
-  const bg: Layer[] = [];
-  const top: Layer[] = [];
-  for (const l of layers) {
-    if (l.kind === 'background') bg.push(l);
-    else top.push(l);
+function drawLayerClipped(c: CanvasRenderingContext2D, layer: Layer, mask: HTMLCanvasElement | null): void {
+  if (!layer.clipToMask || !mask) {
+    drawLayerLocal(c, layer);
+    return;
   }
-  return { bg, top };
+  clipCtx.clearRect(0, 0, IMG_W, IMG_H);
+  drawLayerLocal(clipCtx, layer);
+  clipCtx.globalCompositeOperation = 'destination-in';
+  clipCtx.drawImage(mask, 0, 0);
+  clipCtx.globalCompositeOperation = 'source-over';
+  c.drawImage(clipCanvas, 0, 0);
 }
 
-function drawBgLayers(c: CanvasRenderingContext2D): void {
-  const { bg } = splitLayers();
-  for (const l of bg) {
-    if (l.visible) drawLayerLocal(c, l);
-  }
-}
-
-function drawTopLayers(c: CanvasRenderingContext2D, view: ReturnType<typeof currentView>): void {
-  const { top } = splitLayers();
-  const vis = top.filter((l) => l.visible);
-  if (vis.length === 0) return;
+export function drawStack(
+  c: CanvasRenderingContext2D,
+  view: ReturnType<typeof currentView>,
+  frameIdx0: number,
+  dim = false,
+): void {
+  const visible = view.layers.filter((l) => l.visible);
   compCtx.clearRect(0, 0, IMG_W, IMG_H);
-  for (const l of vis) drawLayerLocal(compCtx, l);
-  const clipped = vis.filter((l) => l.clipToMask);
-  if (clipped.length > 0 && view.mask) {
-    compCtx.save();
-    compCtx.globalCompositeOperation = 'destination-in';
-    compCtx.drawImage(view.mask, 0, 0);
-    compCtx.restore();
+  for (const l of visible) {
+    if (l.kind === 'car') {
+      c.drawImage(compCanvas, 0, 0);
+      compCtx.clearRect(0, 0, IMG_W, IMG_H);
+      drawCarFrame(c, frameIdx0, dim);
+    } else {
+      drawLayerClipped(compCtx, l, view.mask);
+    }
   }
   c.drawImage(compCanvas, 0, 0);
+  if (!visible.some((l) => l.kind === 'car')) {
+    drawCarFrame(c, frameIdx0, dim);
+  }
 }
 
 function drawCarFrame(c: CanvasRenderingContext2D, idx0: number, dim = false): void {
@@ -204,15 +211,12 @@ export function rotateHandlePoint(ih: number): [number, number] {
 }
 
 function renderOrbit(c: CanvasRenderingContext2D): void {
-  drawBgLayers(c);
-  drawCarFrame(c, state.orbitFrame);
+  drawStack(c, currentView(), state.orbitFrame);
 }
 
 function renderEdit(c: CanvasRenderingContext2D): void {
   const view = currentView();
-  drawBgLayers(c);
-  drawCarFrame(c, ORTHO_FRAME_1BASED[state.currentView] - 1);
-  drawTopLayers(c, view);
+  drawStack(c, view, ORTHO_FRAME_1BASED[state.currentView] - 1);
   drawSelection(c);
 }
 
