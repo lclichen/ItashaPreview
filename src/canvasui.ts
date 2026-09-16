@@ -1,4 +1,4 @@
-import { state, currentView, markDirty, ORTHO_FRAME_1BASED } from './state';
+import { state, currentView, markDirty, ORTHO_FRAME_1BASED, IMG_W, IMG_H } from './state';
 import { mainCanvas, toImageSpace, getViewTransform, cornerPoints } from './render';
 import { stampLine, wandMask, uint8ToMaskCanvas } from './maskedit';
 import { commitTransform, commitMaskRegion, copyCanvas, maskBBoxOfRegion } from './history';
@@ -64,10 +64,71 @@ function pickLayer(ix: number, iy: number): Layer | null {
   const layers = currentView().layers;
   for (let i = layers.length - 1; i >= 0; i--) {
     const l = layers[i];
-    if (l.kind === 'car' || !l.visible) continue;
+    if (l.kind === 'car' || !l.visible || l.locked) continue;
     if (hitLayer(l, ix, iy)) return l;
   }
   return null;
+}
+
+const SNAP_THRESHOLD = 8;
+
+function layerBounds(l: Layer): { left: number; right: number; top: number; bottom: number; cx: number; cy: number } {
+  const t = l.transform;
+  const iw = l.img.naturalWidth || l.img.width;
+  const ih = l.img.naturalHeight || l.img.height;
+  const w = iw * t.scale;
+  const h = ih * t.scale;
+  const rad = (t.rotation * Math.PI) / 180;
+  const bw = Math.abs(w * Math.cos(rad)) + Math.abs(h * Math.sin(rad));
+  const bh = Math.abs(w * Math.sin(rad)) + Math.abs(h * Math.cos(rad));
+  return {
+    cx: t.x,
+    cy: t.y,
+    left: t.x - bw / 2,
+    right: t.x + bw / 2,
+    top: t.y - bh / 2,
+    bottom: t.y + bh / 2,
+  };
+}
+
+function applySnap(layer: Layer): void {
+  const t = layer.transform;
+  const cur = layerBounds(layer);
+  const xs: number[] = [IMG_W / 2];
+  const ys: number[] = [IMG_H / 2];
+  for (const o of currentView().layers) {
+    if (o === layer || o.kind === 'car' || !o.visible) continue;
+    const b = layerBounds(o);
+    xs.push(b.cx, b.left, b.right);
+    ys.push(b.cy, b.top, b.bottom);
+  }
+  let bestX = SNAP_THRESHOLD + 1;
+  let snapX: number | null = null;
+  for (const target of xs) {
+    for (const edge of [cur.cx, cur.left, cur.right]) {
+      const d = target - edge;
+      if (Math.abs(d) < Math.abs(bestX)) {
+        bestX = d;
+        snapX = target;
+      }
+    }
+  }
+  state.snapX = snapX !== null && Math.abs(bestX) <= SNAP_THRESHOLD ? snapX : null;
+  if (state.snapX !== null) t.x += bestX;
+
+  let bestY = SNAP_THRESHOLD + 1;
+  let snapY: number | null = null;
+  for (const target of ys) {
+    for (const edge of [cur.cy, cur.top, cur.bottom]) {
+      const d = target - edge;
+      if (Math.abs(d) < Math.abs(bestY)) {
+        bestY = d;
+        snapY = target;
+      }
+    }
+  }
+  state.snapY = snapY !== null && Math.abs(bestY) <= SNAP_THRESHOLD ? snapY : null;
+  if (state.snapY !== null) t.y += bestY;
 }
 
 function layerCorners(layer: Layer): { pts: [number, number][]; iw: number; ih: number } {
@@ -217,6 +278,7 @@ function onPointerMove(e: PointerEvent): void {
     if (drag.kind === 'move') {
       t.x = drag.origX + (p.x - drag.startX);
       t.y = drag.origY + (p.y - drag.startY);
+      applySnap(drag.layer);
     } else if (drag.handle === 'rotate') {
       const cur = Math.atan2(p.y - t.y, p.x - t.x);
       let deg = drag.origRotation + ((cur - drag.origAngle) * 180) / Math.PI;
@@ -255,6 +317,11 @@ function onPointerUp(): void {
   lastPt = null;
   strokeBefore = null;
   strokeBBox = null;
+  if (state.snapX !== null || state.snapY !== null) {
+    state.snapX = null;
+    state.snapY = null;
+    markDirty();
+  }
 }
 
 function onWheel(e: WheelEvent): void {

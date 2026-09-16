@@ -17,6 +17,7 @@ export interface Layer {
   img: HTMLImageElement;
   originalImg: HTMLImageElement | null;
   visible: boolean;
+  locked: boolean;
   opacity: number;
   clipToMask: boolean;
   flipX: boolean;

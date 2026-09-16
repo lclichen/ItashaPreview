@@ -57,3 +57,11 @@ This file records user instructions, preferences, and teachings for reference in
 - Category: Troubleshooting & Debugging
 - Instructions:
   - IndexedDB 持久化链路是 markDirty -> 800ms debounce -> persistAll（内部 blob 序列化异步）：E2E 中上传图层后到 reload 之间必须等待 >=2s，否则事务未完成数据未落盘，属测试时序问题而非产品缺陷
+
+[Project Knowledge Summary]
+- Date: 2026-09-16
+- Context: 为图层列表增加双击重命名时，发现 dblclick 无法触发
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 列表项 click 处理器若调用整表重建（renderLayerList），第二次 click 的 DOM 目标会被替换掉，导致 dblclick 永不触发；选中态更新应改为只切换 class（updateSelectionStyles），不要重建 DOM
+  - HTML5 拖拽排序在 Playwright 中需手动合成 DragEvent + DataTransfer（dragstart/dragover/drop/dragend），page.dragTo 走鼠标事件不会触发 HTML5 DnD 处理器

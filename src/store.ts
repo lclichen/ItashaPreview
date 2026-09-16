@@ -10,6 +10,7 @@ interface StoredLayer {
   name: string;
   kind: Layer['kind'];
   visible: boolean;
+  locked: boolean;
   opacity: number;
   clipToMask: boolean;
   flipX: boolean;
@@ -69,6 +70,7 @@ async function serializeLayer(layer: Layer): Promise<StoredLayer | null> {
       name: layer.name,
       kind: layer.kind,
       visible: true,
+      locked: true,
       opacity: 1,
       clipToMask: false,
       flipX: false,
@@ -86,6 +88,7 @@ async function serializeLayer(layer: Layer): Promise<StoredLayer | null> {
     name: layer.name,
     kind: layer.kind,
     visible: layer.visible,
+    locked: layer.locked,
     opacity: layer.opacity,
     clipToMask: layer.clipToMask,
     flipX: layer.flipX,
@@ -174,6 +177,7 @@ export async function loadAll(): Promise<Record<ViewKey, { layers: Layer[]; mask
             img,
             originalImg: null,
             visible: sl.visible,
+            locked: sl.locked ?? false,
             opacity: sl.opacity,
             clipToMask: sl.clipToMask,
             flipX: sl.flipX,

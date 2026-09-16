@@ -73,6 +73,8 @@ export const state = {
   playing: false,
   dirty: true,
   brushCursor: null as { x: number; y: number } | null,
+  snapX: null as number | null,
+  snapY: null as number | null,
 };
 
 export function currentView(): ViewState {
@@ -132,6 +134,7 @@ export function makeLayer(
     img,
     originalImg: null,
     visible: true,
+    locked: false,
     opacity: 1,
     clipToMask: kind !== 'background',
     flipX: false,
@@ -145,4 +148,13 @@ export function findLayer(id: string): Layer | null {
     if (l) return l;
   }
   return null;
+}
+
+export function duplicateLayer(l: Layer): Layer {
+  return {
+    ...l,
+    id: uid(),
+    name: `${l.name} 副本`,
+    transform: { ...l.transform },
+  };
 }

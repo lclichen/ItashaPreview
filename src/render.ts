@@ -163,18 +163,22 @@ function drawEdgeOverlay(c: CanvasRenderingContext2D): void {
 function drawSelection(c: CanvasRenderingContext2D): void {
   const view = currentView();
   const layer = view.layers.find((l) => l.id === state.selectedLayerId);
-  if (!layer) return;
+  if (!layer || layer.kind === 'car') return;
   const t = layer.transform;
   const iw = (layer.img.naturalWidth || layer.img.width) * t.scale;
   const ih = (layer.img.naturalHeight || layer.img.height) * t.scale;
   c.save();
   c.translate(t.x, t.y);
   c.rotate((t.rotation * Math.PI) / 180);
-  c.strokeStyle = '#7c8cff';
+  c.strokeStyle = layer.locked ? '#8b8b96' : '#7c8cff';
   c.lineWidth = 2 / vt.scale;
   c.setLineDash([6 / vt.scale, 4 / vt.scale]);
   c.strokeRect(-iw / 2, -ih / 2, iw, ih);
   c.setLineDash([]);
+  if (layer.locked) {
+    c.restore();
+    return;
+  }
   const hs = 9 / vt.scale;
   c.fillStyle = '#fff';
   c.strokeStyle = '#7c8cff';
@@ -218,6 +222,28 @@ function renderEdit(c: CanvasRenderingContext2D): void {
   const view = currentView();
   drawStack(c, view, ORTHO_FRAME_1BASED[state.currentView] - 1);
   drawSelection(c);
+  drawSnapGuides(c);
+}
+
+function drawSnapGuides(c: CanvasRenderingContext2D): void {
+  if (state.snapX === null && state.snapY === null) return;
+  c.save();
+  c.strokeStyle = '#ff4d9d';
+  c.lineWidth = 1.5 / vt.scale;
+  c.setLineDash([8 / vt.scale, 6 / vt.scale]);
+  if (state.snapX !== null) {
+    c.beginPath();
+    c.moveTo(state.snapX, 0);
+    c.lineTo(state.snapX, IMG_H);
+    c.stroke();
+  }
+  if (state.snapY !== null) {
+    c.beginPath();
+    c.moveTo(0, state.snapY);
+    c.lineTo(IMG_W, state.snapY);
+    c.stroke();
+  }
+  c.restore();
 }
 
 function renderMask(c: CanvasRenderingContext2D): void {

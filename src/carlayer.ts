@@ -22,6 +22,7 @@ export function makeCarLayer(): Layer {
     img: getBlankImg(),
     originalImg: null,
     visible: true,
+    locked: true,
     opacity: 1,
     clipToMask: false,
     flipX: false,

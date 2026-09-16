@@ -1,8 +1,8 @@
-import { state, currentView, markDirty, loadImg, makeLayer, findLayer, VIEW_ORDER, VIEW_LABEL, ORTHO_FRAME_1BASED, FRAMES, angleLabel } from './state';
+import { state, currentView, markDirty, loadImg, makeLayer, duplicateLayer, findLayer, VIEW_ORDER, VIEW_LABEL, ORTHO_FRAME_1BASED, FRAMES, angleLabel } from './state';
 import { autoMaskFromEdges, autoMaskFromAlpha, invertMaskCanvas, clearMaskCanvas, refineMaskExcludeDarkParts, chromaKeyCutout } from './maskedit';
 import { getRemoveBgKey, setRemoveBgKey, removeBgBlob, removeBgLocal, queryCredits, layerImageToBlob, blobToImage, canvasToImage } from './removebg';
 import { clearAll } from './store';
-import { commitAddLayer, commitRemoveLayer, commitReorderLayer, commitLayerProps, commitTransform, commitViewsSnapshot, runMaskMutation, undo, redo, canUndo, canRedo, snapshotView } from './history';
+import { commitAddLayer, commitRemoveLayer, commitMoveLayer, commitLayerProps, commitTransform, commitViewsSnapshot, runMaskMutation, undo, redo, canUndo, canRedo, snapshotView } from './history';
 import type { Transform } from './types';
 import { invalidateEdgeOverlay, toImageSpace, drawStack } from './render';
 import { CAR_ID } from './carlayer';
@@ -94,9 +94,87 @@ function moveLayer(id: string, dir: -1 | 1): void {
   if (idx < 0) return;
   const j = idx + dir;
   if (j < 0 || j >= view.layers.length) return;
-  [view.layers[idx], view.layers[j]] = [view.layers[j], view.layers[idx]];
-  commitReorderLayer(state.currentView, idx, j);
+  const layer = view.layers[idx];
+  if (layer.kind === 'car') return;
+  view.layers.splice(idx, 1);
+  view.layers.splice(j, 0, layer);
+  commitMoveLayer(state.currentView, layer, idx, j);
   renderLayerList();
+  markDirty();
+}
+
+let dragLayerId: string | null = null;
+let dropTargetId: string | null = null;
+let dropAbove = true;
+let clipboardLayer: Layer | null = null;
+
+function clearDropMarkers(): void {
+  const ul = $('layerList') as HTMLUListElement;
+  ul.querySelectorAll('.drop-top, .drop-bottom').forEach((el) => el.classList.remove('drop-top', 'drop-bottom'));
+}
+
+function performLayerDrop(): void {
+  const view = currentView();
+  const layer = dragLayerId ? view.layers.find((l) => l.id === dragLayerId) : null;
+  const target = dropTargetId ? view.layers.find((l) => l.id === dropTargetId) : null;
+  clearDropMarkers();
+  if (!layer || !target || layer === target || layer.kind === 'car') return;
+  const from = view.layers.indexOf(layer);
+  let to = view.layers.indexOf(target) + (dropAbove ? 1 : 0);
+  view.layers.splice(from, 1);
+  if (from < to) to -= 1;
+  if (to === from) {
+    view.layers.splice(from, 0, layer);
+    return;
+  }
+  view.layers.splice(to, 0, layer);
+  commitMoveLayer(state.currentView, layer, from, to);
+  renderLayerList();
+  markDirty();
+}
+
+function selectedEditableLayer(): Layer | null {
+  const l = state.selectedLayerId ? currentView().layers.find((x) => x.id === state.selectedLayerId) : null;
+  if (!l || l.kind === 'car') return null;
+  return l;
+}
+
+function insertLayerCopy(src: Layer, offset: number): void {
+  const view = currentView();
+  const srcIdx = view.layers.indexOf(src);
+  const idx = srcIdx >= 0 ? srcIdx + 1 : view.layers.length;
+  const layer = duplicateLayer(src);
+  layer.transform.x += offset;
+  layer.transform.y += offset;
+  view.layers.splice(idx, 0, layer);
+  commitAddLayer(state.currentView, layer, idx);
+  state.selectedLayerId = layer.id;
+  renderLayerList();
+  refreshProps();
+  markDirty();
+}
+
+function duplicateSelectedLayer(): void {
+  const l = selectedEditableLayer();
+  if (!l) return;
+  insertLayerCopy(l, 24);
+  toast(`已复制图层「${l.name}」`);
+}
+
+function pasteLayer(): void {
+  if (!clipboardLayer) return;
+  insertLayerCopy(clipboardLayer, 24);
+  toast('已粘贴图层');
+}
+
+function nudgeSelectedLayer(dx: number, dy: number): void {
+  const l = selectedEditableLayer();
+  if (!l || l.locked) return;
+  const before = { ...l.transform };
+  l.transform.x += dx;
+  l.transform.y += dy;
+  commitTransform(state.currentView, l.id, before, { ...l.transform });
+  document.dispatchEvent(new CustomEvent('layer-transformed'));
   markDirty();
 }
 
@@ -109,15 +187,18 @@ function renderLayerList(): void {
     const l = view.layers[i];
     const li = document.createElement('li');
     const isCar = l.kind === 'car';
-    li.className = 'layer-item' + (isCar ? ' car' : '') + (l.id === state.selectedLayerId ? ' selected' : '');
+    li.className = 'layer-item' + (isCar ? ' car' : '') + (l.locked ? ' locked' : '') + (l.id === state.selectedLayerId ? ' selected' : '');
+    li.dataset.layerId = l.id;
     const thumb = document.createElement('div');
     thumb.className = 'thumb';
     const timg = document.createElement('img');
     timg.src = isCar ? (carFrame ? carFrame.src : '') : l.img.src;
+    timg.draggable = false;
     thumb.appendChild(timg);
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = l.name;
+    name.title = isCar ? '' : '双击重命名';
     const kind = document.createElement('span');
     kind.className = 'kind';
     kind.textContent = isCar ? '车体' : kindLabel(l.kind);
@@ -126,6 +207,50 @@ function renderLayerList(): void {
       ul.appendChild(li);
       continue;
     }
+    li.draggable = true;
+    name.ondblclick = (e) => {
+      e.stopPropagation();
+      const input = document.createElement('input');
+      input.className = 'rename-input';
+      input.value = l.name;
+      let done = false;
+      const finish = (save: boolean) => {
+        if (done) return;
+        done = true;
+        const v = input.value.trim();
+        if (save && v && v !== l.name) {
+          const before = l.name;
+          l.name = v;
+          commitLayerProps(state.currentView, l.id, { name: before }, { name: v }, '重命名图层');
+          markDirty();
+        }
+        renderLayerList();
+      };
+      input.onkeydown = (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') finish(true);
+        else if (ev.key === 'Escape') finish(false);
+      };
+      input.onblur = () => finish(true);
+      input.onclick = (ev) => ev.stopPropagation();
+      input.ondblclick = (ev) => ev.stopPropagation();
+      name.replaceWith(input);
+      input.focus();
+      input.select();
+    };
+    const lock = document.createElement('button');
+    lock.className = 'lock' + (l.locked ? ' on' : '');
+    lock.textContent = l.locked ? '锁' : '解';
+    lock.title = l.locked ? '解锁图层' : '锁定图层（禁止移动与编辑）';
+    lock.onclick = (e) => {
+      e.stopPropagation();
+      const before = l.locked;
+      l.locked = !l.locked;
+      commitLayerProps(state.currentView, l.id, { locked: before }, { locked: l.locked }, '锁定图层');
+      renderLayerList();
+      refreshProps();
+      markDirty();
+    };
     const eye = document.createElement('button');
     eye.className = 'eye' + (l.visible ? '' : ' off');
     eye.textContent = l.visible ? '◉' : '○';
@@ -154,10 +279,10 @@ function renderLayerList(): void {
       e.stopPropagation();
       moveLayer(l.id, -1);
     };
-    li.append(up, down, eye);
+    li.append(up, down, lock, eye);
     li.onclick = () => {
       state.selectedLayerId = l.id;
-      renderLayerList();
+      updateSelectionStyles();
       refreshProps();
       markDirty();
     };
@@ -165,11 +290,18 @@ function renderLayerList(): void {
   }
 }
 
+function updateSelectionStyles(): void {
+  const ul = $('layerList') as HTMLUListElement;
+  ul.querySelectorAll('.layer-item').forEach((el) => {
+    el.classList.toggle('selected', (el as HTMLElement).dataset.layerId === state.selectedLayerId);
+  });
+}
+
 function refreshProps(): void {
   const layer = state.selectedLayerId ? findLayer(state.selectedLayerId) : null;
   const body = $('layerPropBody');
   const empty = $('noLayerSelected');
-  if (!layer) {
+  if (!layer || layer.kind === 'car') {
     body.style.display = 'none';
     empty.style.display = '';
     return;
@@ -183,7 +315,13 @@ function refreshProps(): void {
   ($('propRotation') as HTMLInputElement).value = String(Math.round(layer.transform.rotation));
   $('propRotationVal').textContent = String(Math.round(layer.transform.rotation));
   ($('propClip') as HTMLInputElement).checked = layer.clipToMask;
-  $('btnLayerRestore').style.display = layer.originalImg ? '' : 'none';
+  const locked = !!layer.locked;
+  for (const id of ['propOpacity', 'propScale', 'propRotation', 'propClip', 'btnLayerFlip', 'btnLayerUp', 'btnLayerDown', 'btnLayerDel']) {
+    ($(id) as HTMLInputElement).disabled = locked;
+  }
+  $('btnLayerRestore').style.display = layer.originalImg && !locked ? '' : 'none';
+  $('btnLayerDup').style.display = '';
+  $('btnLayerDel').title = locked ? '图层已锁定，请先解锁' : '删除图层';
 }
 
 function onLayerTransformed(): void {
@@ -601,6 +739,20 @@ export function initUI(): void {
         e.preventDefault();
         redo();
       }
+    } else if (e.key.toLowerCase() === 'd' && !typing) {
+      e.preventDefault();
+      duplicateSelectedLayer();
+    } else if (e.key.toLowerCase() === 'c' && !typing) {
+      const l = selectedEditableLayer();
+      if (l) {
+        clipboardLayer = { ...l, transform: { ...l.transform } };
+        toast(`已复制图层「${l.name}」`);
+      }
+    } else if (e.key.toLowerCase() === 'v' && !typing) {
+      if (clipboardLayer) {
+        e.preventDefault();
+        pasteLayer();
+      }
     }
   });
 
@@ -664,6 +816,7 @@ export function initUI(): void {
     commitLayerProps(state.currentView, layer.id, { clipToMask: before }, { clipToMask: layer.clipToMask }, '切换裁剪');
     markDirty();
   });
+  $('btnLayerDup').addEventListener('click', () => duplicateSelectedLayer());
   $('btnLayerUp').addEventListener('click', () => {
     if (state.selectedLayerId) moveLayer(state.selectedLayerId, 1);
   });
@@ -696,11 +849,57 @@ export function initUI(): void {
     toast('已还原为原图');
   });
   window.addEventListener('keydown', (e) => {
-    if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedLayerId && state.mode === 'edit') {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+    if (state.mode !== 'edit') return;
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+    if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedLayerId) {
       deleteLayerById(state.selectedLayerId);
+      return;
     }
+    if (e.key.startsWith('Arrow') && state.selectedLayerId && !e.ctrlKey && !e.metaKey) {
+      const l = selectedEditableLayer();
+      if (!l || l.locked) return;
+      const step = e.shiftKey ? 10 : 1;
+      const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+      const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+      nudgeSelectedLayer(dx, dy);
+      e.preventDefault();
+    }
+  });
+
+  const layerListEl = $('layerList') as HTMLUListElement;
+  layerListEl.addEventListener('dragstart', (e) => {
+    const li = (e.target as HTMLElement).closest('.layer-item') as HTMLElement | null;
+    if (!li || li.classList.contains('car') || !li.dataset.layerId) {
+      e.preventDefault();
+      return;
+    }
+    dragLayerId = li.dataset.layerId;
+    li.classList.add('dragging');
+    e.dataTransfer?.setData('text/plain', dragLayerId);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  });
+  layerListEl.addEventListener('dragover', (e) => {
+    if (!dragLayerId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    const li = (e.target as HTMLElement).closest('.layer-item') as HTMLElement | null;
+    clearDropMarkers();
+    if (!li || !li.dataset.layerId || li.dataset.layerId === dragLayerId) return;
+    const r = li.getBoundingClientRect();
+    dropAbove = e.clientY < r.top + r.height / 2;
+    dropTargetId = li.dataset.layerId;
+    li.classList.add(dropAbove ? 'drop-top' : 'drop-bottom');
+  });
+  layerListEl.addEventListener('drop', (e) => {
+    e.preventDefault();
+    performLayerDrop();
+  });
+  layerListEl.addEventListener('dragend', () => {
+    dragLayerId = null;
+    dropTargetId = null;
+    clearDropMarkers();
+    layerListEl.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
   });
 
   document.addEventListener('layer-selected', () => {

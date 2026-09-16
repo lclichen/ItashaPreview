@@ -132,18 +132,20 @@ export function commitRemoveLayer(view: ViewKey, layer: Layer, idx: number, wasS
   });
 }
 
-export function commitReorderLayer(view: ViewKey, i: number, j: number): void {
-  const swap = () => {
+export function commitMoveLayer(view: ViewKey, layer: Layer, fromIdx: number, toIdx: number): void {
+  const place = (targetIdx: number): void => {
     const ls = state.views[view].layers;
-    const tmp = ls[i];
-    ls[i] = ls[j];
-    ls[j] = tmp;
+    const i = ls.indexOf(layer);
+    if (i < 0) return;
+    ls.splice(i, 1);
+    const j = Math.min(Math.max(targetIdx, 0), ls.length);
+    ls.splice(j, 0, layer);
   };
   pushCommand({
     label: '调整图层顺序',
     view,
-    undo: swap,
-    redo: swap,
+    undo: () => place(fromIdx),
+    redo: () => place(toIdx),
   });
 }
 
