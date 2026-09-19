@@ -27,5 +27,6 @@ export function makeCarLayer(): Layer {
     clipToMask: false,
     flipX: false,
     transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+    quad: null,
   };
 }

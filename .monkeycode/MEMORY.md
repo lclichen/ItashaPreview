@@ -65,3 +65,12 @@ This file records user instructions, preferences, and teachings for reference in
 - Instructions:
   - 列表项 click 处理器若调用整表重建（renderLayerList），第二次 click 的 DOM 目标会被替换掉，导致 dblclick 永不触发；选中态更新应改为只切换 class（updateSelectionStyles），不要重建 DOM
   - HTML5 拖拽排序在 Playwright 中需手动合成 DragEvent + DataTransfer（dragstart/dragover/drop/dragend），page.dragTo 走鼠标事件不会触发 HTML5 DnD 处理器
+
+[Project Knowledge Summary]
+- Date: 2026-09-16
+- Context: 实现四角透视（逐格仿射纹理映射）时出现网格状接缝，以及撤销语义错乱
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - canvas 2D 用"分割网格 + 逐格 clip + 仿射 drawImage"做透视时，1:1 分辨率下必然出现网格接缝；解法是离屏 2 倍超采样渲染后再缩回目标尺寸（网格缝在低分辨率下不可见）
+  - 命令栈的 800ms 合并窗口只适用于"高频连续同类提交"（如滚轮缩放）；模式切换类离散操作（进入/退出某种编辑模式）必须 push 独立命令，否则会与栈顶同类命令合并，导致撤销回退错误的一步
+  - Playwright 在 page.reload 后旧的 ElementHandle 会失效，需重新 page.$ 获取画布并重算坐标映射

@@ -10,6 +10,13 @@ export interface Transform {
   rotation: number;
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export type Quad = [Point, Point, Point, Point];
+
 export interface Layer {
   id: string;
   name: string;
@@ -22,6 +29,7 @@ export interface Layer {
   clipToMask: boolean;
   flipX: boolean;
   transform: Transform;
+  quad: Quad | null;
 }
 
 export interface ViewState {

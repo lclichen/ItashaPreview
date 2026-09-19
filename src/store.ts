@@ -15,6 +15,7 @@ interface StoredLayer {
   clipToMask: boolean;
   flipX: boolean;
   transform: Layer['transform'];
+  quad: Layer['quad'];
   imgBlob: Blob | null;
 }
 
@@ -75,6 +76,7 @@ async function serializeLayer(layer: Layer): Promise<StoredLayer | null> {
       clipToMask: false,
       flipX: false,
       transform: { ...layer.transform },
+      quad: null,
       imgBlob: null,
     };
   }
@@ -93,6 +95,7 @@ async function serializeLayer(layer: Layer): Promise<StoredLayer | null> {
     clipToMask: layer.clipToMask,
     flipX: layer.flipX,
     transform: { ...layer.transform },
+    quad: layer.quad ? (layer.quad.map((p) => ({ ...p })) as Layer['quad']) : null,
     imgBlob: blob,
   };
 }
@@ -182,6 +185,7 @@ export async function loadAll(): Promise<Record<ViewKey, { layers: Layer[]; mask
             clipToMask: sl.clipToMask,
             flipX: sl.flipX,
             transform: { ...sl.transform },
+            quad: sl.quad ? (sl.quad.map((p) => ({ ...p })) as Layer['quad']) : null,
           });
         } catch {
           /* skip broken layer */

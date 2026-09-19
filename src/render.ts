@@ -1,6 +1,7 @@
 import type { Layer, ViewTransform } from './types';
 import { IMG_W, IMG_H, state, currentView, frameSrc, angleLabel, ORTHO_FRAME_1BASED, VIEW_ORDER, markDirty } from './state';
 import { edgeOverlayCanvas } from './maskedit';
+import { quadRenderCanvas } from './quad';
 
 const mainCanvas = document.getElementById('mainCanvas') as HTMLCanvasElement;
 const ctx = mainCanvas.getContext('2d')!;
@@ -67,12 +68,18 @@ export function toImageSpace(clientX: number, clientY: number): { x: number; y: 
 }
 
 function drawLayerLocal(c: CanvasRenderingContext2D, layer: Layer): void {
+  c.save();
+  c.globalAlpha = layer.opacity;
+  if (layer.quad) {
+    const qc = quadRenderCanvas(layer);
+    if (qc) c.drawImage(qc, 0, 0, IMG_W, IMG_H);
+    c.restore();
+    return;
+  }
   const img = layer.img;
   const iw = img.naturalWidth || img.width;
   const ih = img.naturalHeight || img.height;
   const t = layer.transform;
-  c.save();
-  c.globalAlpha = layer.opacity;
   c.translate(t.x, t.y);
   c.rotate((t.rotation * Math.PI) / 180);
   c.scale(t.scale * (layer.flipX ? -1 : 1), t.scale);
@@ -164,6 +171,10 @@ function drawSelection(c: CanvasRenderingContext2D): void {
   const view = currentView();
   const layer = view.layers.find((l) => l.id === state.selectedLayerId);
   if (!layer || layer.kind === 'car') return;
+  if (layer.quad) {
+    drawQuadSelection(c, layer);
+    return;
+  }
   const t = layer.transform;
   const iw = (layer.img.naturalWidth || layer.img.width) * t.scale;
   const ih = (layer.img.naturalHeight || layer.img.height) * t.scale;
@@ -198,6 +209,34 @@ function drawSelection(c: CanvasRenderingContext2D): void {
   c.beginPath();
   c.arc(rx, ry, hs / 2 + 2 / vt.scale, 0, Math.PI * 2);
   c.fill();
+  c.restore();
+}
+
+function drawQuadSelection(c: CanvasRenderingContext2D, layer: Layer): void {
+  const q = layer.quad!;
+  c.save();
+  c.strokeStyle = layer.locked ? '#8b8b96' : '#7c8cff';
+  c.lineWidth = 2 / vt.scale;
+  c.setLineDash([6 / vt.scale, 4 / vt.scale]);
+  c.beginPath();
+  c.moveTo(q[0].x, q[0].y);
+  c.lineTo(q[1].x, q[1].y);
+  c.lineTo(q[2].x, q[2].y);
+  c.lineTo(q[3].x, q[3].y);
+  c.closePath();
+  c.stroke();
+  c.setLineDash([]);
+  if (!layer.locked) {
+    const hs = 11 / vt.scale;
+    c.fillStyle = '#fff';
+    c.strokeStyle = '#7c8cff';
+    for (const p of q) {
+      c.beginPath();
+      c.arc(p.x, p.y, hs / 2, 0, Math.PI * 2);
+      c.fill();
+      c.stroke();
+    }
+  }
   c.restore();
 }
 

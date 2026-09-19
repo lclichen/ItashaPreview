@@ -2,9 +2,10 @@ import { state, currentView, markDirty, loadImg, makeLayer, duplicateLayer, find
 import { autoMaskFromEdges, autoMaskFromAlpha, invertMaskCanvas, clearMaskCanvas, refineMaskExcludeDarkParts, chromaKeyCutout } from './maskedit';
 import { getRemoveBgKey, setRemoveBgKey, removeBgBlob, removeBgLocal, queryCredits, layerImageToBlob, blobToImage, canvasToImage } from './removebg';
 import { clearAll } from './store';
-import { commitAddLayer, commitRemoveLayer, commitMoveLayer, commitLayerProps, commitTransform, commitViewsSnapshot, runMaskMutation, undo, redo, canUndo, canRedo, snapshotView } from './history';
-import type { Transform } from './types';
+import { commitAddLayer, commitRemoveLayer, commitMoveLayer, commitLayerProps, commitTransform, commitQuad, commitViewsSnapshot, runMaskMutation, undo, redo, canUndo, canRedo, snapshotView } from './history';
+import type { Transform, Quad } from './types';
 import { invalidateEdgeOverlay, toImageSpace, drawStack } from './render';
+import { quadFromTransform } from './quad';
 import { CAR_ID } from './carlayer';
 import type { Layer, LayerKind, ViewKey } from './types';
 
@@ -170,6 +171,14 @@ function pasteLayer(): void {
 function nudgeSelectedLayer(dx: number, dy: number): void {
   const l = selectedEditableLayer();
   if (!l || l.locked) return;
+  if (l.quad) {
+    const before = l.quad.map((p) => ({ ...p })) as Quad;
+    l.quad = l.quad.map((p) => ({ x: p.x + dx, y: p.y + dy })) as Quad;
+    commitQuad(state.currentView, l.id, before, l.quad.map((p) => ({ ...p })) as Quad);
+    document.dispatchEvent(new CustomEvent('layer-transformed'));
+    markDirty();
+    return;
+  }
   const before = { ...l.transform };
   l.transform.x += dx;
   l.transform.y += dy;
@@ -316,8 +325,20 @@ function refreshProps(): void {
   $('propRotationVal').textContent = String(Math.round(layer.transform.rotation));
   ($('propClip') as HTMLInputElement).checked = layer.clipToMask;
   const locked = !!layer.locked;
-  for (const id of ['propOpacity', 'propScale', 'propRotation', 'propClip', 'btnLayerFlip', 'btnLayerUp', 'btnLayerDown', 'btnLayerDel']) {
+  for (const id of ['propOpacity', 'propScale', 'propRotation', 'propClip', 'btnLayerFlip', 'btnLayerQuad', 'btnLayerUp', 'btnLayerDown', 'btnLayerDel']) {
     ($(id) as HTMLInputElement).disabled = locked;
+  }
+  const quadMode = !!layer.quad;
+  $('btnLayerQuad').textContent = quadMode ? '退出透视' : '四角透视';
+  $('btnLayerQuad').title = quadMode ? '恢复为矩形（保持当前位置）' : '拖动四角，让平面图贴合有角度的车面';
+  if (quadMode) {
+    ($('propScale') as HTMLInputElement).disabled = true;
+    ($('propRotation') as HTMLInputElement).disabled = true;
+    ($('propScale') as HTMLInputElement).title = '四角透视模式下不可用';
+    ($('propRotation') as HTMLInputElement).title = '四角透视模式下不可用';
+  } else {
+    ($('propScale') as HTMLInputElement).title = '';
+    ($('propRotation') as HTMLInputElement).title = '';
   }
   $('btnLayerRestore').style.display = layer.originalImg && !locked ? '' : 'none';
   $('btnLayerDup').style.display = '';
@@ -826,9 +847,36 @@ export function initUI(): void {
   $('btnLayerDel').addEventListener('click', () => {
     if (state.selectedLayerId) deleteLayerById(state.selectedLayerId);
   });
+  $('btnLayerQuad').addEventListener('click', () => {
+    const layer = selectedEditableLayer();
+    if (!layer || layer.locked) return;
+    if (layer.quad) {
+      const before = layer.quad.map((p) => ({ ...p })) as Quad;
+      layer.quad = null;
+      commitQuad(state.currentView, layer.id, before, null);
+      toast('已退出四角透视');
+    } else {
+      const q = quadFromTransform(layer);
+      layer.quad = q;
+      commitQuad(state.currentView, layer.id, null, q);
+      toast('拖动四个角点调整透视变形');
+    }
+    renderLayerList();
+    refreshProps();
+    markDirty();
+  });
   $('btnLayerFlip').addEventListener('click', () => {
-    const layer = state.selectedLayerId ? findLayer(state.selectedLayerId) : null;
-    if (!layer) return;
+    const layer = selectedEditableLayer();
+    if (!layer || layer.locked) return;
+    if (layer.quad) {
+      const before = layer.quad.map((p) => ({ ...p })) as Quad;
+      const [tl, tr, br, bl] = layer.quad;
+      layer.quad = [tr, tl, bl, br];
+      commitQuad(state.currentView, layer.id, before, layer.quad.map((p) => ({ ...p })) as Quad);
+      markDirty();
+      toast('已水平翻转');
+      return;
+    }
     const before = layer.flipX;
     layer.flipX = !layer.flipX;
     commitLayerProps(state.currentView, layer.id, { flipX: before }, { flipX: layer.flipX }, '水平翻转');

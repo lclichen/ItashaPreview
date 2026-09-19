@@ -1,14 +1,16 @@
 import { state, currentView, markDirty, ORTHO_FRAME_1BASED, IMG_W, IMG_H } from './state';
 import { mainCanvas, toImageSpace, getViewTransform, cornerPoints } from './render';
 import { stampLine, wandMask, uint8ToMaskCanvas } from './maskedit';
-import { commitTransform, commitMaskRegion, copyCanvas, maskBBoxOfRegion } from './history';
-import type { Layer } from './types';
+import { commitTransform, commitQuad, commitMaskRegion, copyCanvas, maskBBoxOfRegion } from './history';
+import { quadUV, quadFromTransform } from './quad';
+import type { Layer, Quad } from './types';
 
 type HandleKind = 'rotate' | 'nw' | 'ne' | 'se' | 'sw';
 
 interface DragState {
-  kind: 'move' | 'handle';
+  kind: 'move' | 'handle' | 'quad';
   handle?: HandleKind;
+  quadIdx?: number;
   layer: Layer;
   startX: number;
   startY: number;
@@ -18,6 +20,7 @@ interface DragState {
   origRotation: number;
   origDist: number;
   origAngle: number;
+  origQuad?: Quad;
 }
 
 let drag: DragState | null = null;
@@ -45,6 +48,14 @@ function layerAlpha(img: HTMLImageElement): { data: Uint8ClampedArray; w: number
 }
 
 function hitLayer(layer: Layer, ix: number, iy: number): boolean {
+  if (layer.quad) {
+    const uv = quadUV(layer.quad, { x: ix, y: iy });
+    if (!uv) return false;
+    const a = layerAlpha(layer.img);
+    const hx = (layer.flipX ? 1 - uv.x : uv.x) * a.w;
+    const hy = uv.y * a.h;
+    return a.data[(Math.floor(hy) * a.w + Math.floor(hx)) * 4 + 3] > 12;
+  }
   const t = layer.transform;
   const dx = ix - t.x;
   const dy = iy - t.y;
@@ -158,6 +169,15 @@ function hitHandle(layer: Layer, ix: number, iy: number): HandleKind | null {
   return null;
 }
 
+function hitQuadHandle(layer: Layer, ix: number, iy: number): number | null {
+  if (!layer.quad) return null;
+  const r = 14 / getViewTransform().scale;
+  for (let k = 0; k < 4; k++) {
+    if (Math.hypot(layer.quad[k].x - ix, layer.quad[k].y - iy) <= r) return k;
+  }
+  return null;
+}
+
 function onPointerDown(e: PointerEvent): void {
   const p = toImageSpace(e.clientX, e.clientY);
   if (state.mode === 'mask') {
@@ -176,7 +196,28 @@ function onPointerDown(e: PointerEvent): void {
   if (state.mode === 'edit') {
     const view = currentView();
     const sel = view.layers.find((l) => l.id === state.selectedLayerId);
-    if (sel) {
+    if (sel && !sel.locked && sel.quad) {
+      const qi = hitQuadHandle(sel, p.x, p.y);
+      if (qi !== null) {
+        mainCanvas.setPointerCapture(e.pointerId);
+        drag = {
+          kind: 'quad',
+          quadIdx: qi,
+          origQuad: sel.quad.map((q) => ({ ...q })) as Quad,
+          layer: sel,
+          startX: p.x,
+          startY: p.y,
+          origX: sel.transform.x,
+          origY: sel.transform.y,
+          origScale: sel.transform.scale,
+          origRotation: sel.transform.rotation,
+          origDist: 0,
+          origAngle: 0,
+        };
+        return;
+      }
+    }
+    if (sel && !sel.locked && !sel.quad) {
       const h = hitHandle(sel, p.x, p.y);
       if (h) {
         mainCanvas.setPointerCapture(e.pointerId);
@@ -212,6 +253,7 @@ function onPointerDown(e: PointerEvent): void {
         origRotation: layer.transform.rotation,
         origDist: 0,
         origAngle: 0,
+        origQuad: layer.quad ? (layer.quad.map((q) => ({ ...q })) as Quad) : undefined,
       };
       document.dispatchEvent(new CustomEvent('layer-selected'));
     } else {
@@ -274,11 +316,27 @@ function onPointerMove(e: PointerEvent): void {
     return;
   }
   if (drag) {
+    if (drag.kind === 'quad') {
+      if (drag.layer.quad && drag.quadIdx !== undefined) {
+        drag.layer.quad[drag.quadIdx] = { x: p.x, y: p.y };
+        document.dispatchEvent(new CustomEvent('layer-transformed'));
+        markDirty();
+      }
+      return;
+    }
     const t = drag.layer.transform;
     if (drag.kind === 'move') {
-      t.x = drag.origX + (p.x - drag.startX);
-      t.y = drag.origY + (p.y - drag.startY);
-      applySnap(drag.layer);
+      if (drag.layer.quad && drag.origQuad) {
+        const dx = p.x - drag.startX;
+        const dy = p.y - drag.startY;
+        for (let k = 0; k < 4; k++) {
+          drag.layer.quad[k] = { x: drag.origQuad[k].x + dx, y: drag.origQuad[k].y + dy };
+        }
+      } else {
+        t.x = drag.origX + (p.x - drag.startX);
+        t.y = drag.origY + (p.y - drag.startY);
+        applySnap(drag.layer);
+      }
     } else if (drag.handle === 'rotate') {
       const cur = Math.atan2(p.y - t.y, p.x - t.x);
       let deg = drag.origRotation + ((cur - drag.origAngle) * 180) / Math.PI;
@@ -293,20 +351,25 @@ function onPointerMove(e: PointerEvent): void {
     markDirty();
   } else if (state.mode === 'edit') {
     const sel = currentView().layers.find((l) => l.id === state.selectedLayerId);
-    if (sel && hitHandle(sel, p.x, p.y)) {
-      mainCanvas.style.cursor = 'grab';
-    } else {
-      mainCanvas.style.cursor = 'crosshair';
-    }
+    const onHandle = !!sel && !sel.locked && (sel.quad ? hitQuadHandle(sel, p.x, p.y) !== null : hitHandle(sel, p.x, p.y) !== null);
+    mainCanvas.style.cursor = onHandle ? 'grab' : 'crosshair';
   }
 }
 
 function onPointerUp(): void {
   if (drag) {
-    const t = drag.layer.transform;
-    const before = { x: drag.origX, y: drag.origY, scale: drag.origScale, rotation: drag.origRotation };
-    if (before.x !== t.x || before.y !== t.y || before.scale !== t.scale || before.rotation !== t.rotation) {
-      commitTransform(state.currentView, drag.layer.id, before, { ...t });
+    if (drag.kind === 'quad') {
+      if (drag.origQuad && drag.layer.quad) {
+        commitQuad(state.currentView, drag.layer.id, drag.origQuad, drag.layer.quad.map((q) => ({ ...q })) as Quad);
+      }
+    } else if (drag.kind === 'move' && drag.origQuad && drag.layer.quad) {
+      commitQuad(state.currentView, drag.layer.id, drag.origQuad, drag.layer.quad.map((q) => ({ ...q })) as Quad);
+    } else {
+      const t = drag.layer.transform;
+      const before = { x: drag.origX, y: drag.origY, scale: drag.origScale, rotation: drag.origRotation };
+      if (before.x !== t.x || before.y !== t.y || before.scale !== t.scale || before.rotation !== t.rotation) {
+        commitTransform(state.currentView, drag.layer.id, before, { ...t });
+      }
     }
   }
   if (strokeBefore && strokeBBox) {

@@ -139,6 +139,7 @@ export function makeLayer(
     clipToMask: kind !== 'background',
     flipX: false,
     transform: defaultTransform(kind, img),
+    quad: null,
   };
 }
 
@@ -156,5 +157,6 @@ export function duplicateLayer(l: Layer): Layer {
     id: uid(),
     name: `${l.name} 副本`,
     transform: { ...l.transform },
+    quad: l.quad ? (l.quad.map((p) => ({ ...p })) as Layer['quad']) : null,
   };
 }

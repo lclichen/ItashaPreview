@@ -206,6 +206,23 @@ export function commitTransform(
 let lastTransformAt = 0;
 let lastTransformKey = '';
 
+export function commitQuad(view: ViewKey, id: string, before: Layer['quad'], after: Layer['quad']): void {
+  const clone = (q: Layer['quad']): Layer['quad'] => (q ? (q.map((p) => ({ ...p })) as Layer['quad']) : null);
+  pushCommand({
+    label: '调整四角透视',
+    kind: 'quad',
+    view,
+    undo: () => {
+      const l = findLayerIn(view, id);
+      if (l) l.quad = clone(before);
+    },
+    redo: () => {
+      const l = findLayerIn(view, id);
+      if (l) l.quad = clone(after);
+    },
+  });
+}
+
 export function maskImageData(c: HTMLCanvasElement | null): ImageData | null {
   if (!c) return null;
   return c.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, c.width, c.height);
