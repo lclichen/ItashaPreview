@@ -105,11 +105,13 @@ export function drawStack(
   view: ReturnType<typeof currentView>,
   frameIdx0: number,
   dim = false,
+  skipCar = false,
 ): void {
   const visible = view.layers.filter((l) => l.visible);
   compCtx.clearRect(0, 0, IMG_W, IMG_H);
   for (const l of visible) {
     if (l.kind === 'car') {
+      if (skipCar) continue;
       c.drawImage(compCanvas, 0, 0);
       compCtx.clearRect(0, 0, IMG_W, IMG_H);
       drawCarFrame(c, frameIdx0, dim);
@@ -118,9 +120,13 @@ export function drawStack(
     }
   }
   c.drawImage(compCanvas, 0, 0);
-  if (!visible.some((l) => l.kind === 'car')) {
+  if (!skipCar && !visible.some((l) => l.kind === 'car')) {
     drawCarFrame(c, frameIdx0, dim);
   }
+}
+
+export function drawLayerOnly(c: CanvasRenderingContext2D, layer: Layer, mask: HTMLCanvasElement | null): void {
+  drawLayerClipped(c, layer, mask);
 }
 
 function drawCarFrame(c: CanvasRenderingContext2D, idx0: number, dim = false): void {

@@ -45,6 +45,7 @@ export function undo(): void {
   const cmd = stack[index--];
   cmd.undo();
   afterApply(cmd);
+  emitState();
 }
 
 export function redo(): void {
@@ -52,6 +53,7 @@ export function redo(): void {
   const cmd = stack[++index];
   cmd.redo();
   afterApply(cmd);
+  emitState();
 }
 
 export function clearHistory(): void {

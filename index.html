@@ -59,6 +59,12 @@
             <button id="btnMaskClear" class="btn ghost">清空</button>
             <button id="btnMaskInvert" class="btn ghost">反相</button>
           </div>
+          <div class="row">
+            <button id="btnMaskMirror" class="btn ghost">水平镜像</button>
+            <select id="maskCopyTarget" class="mini-select"></select>
+            <button id="btnMaskCopy" class="btn ghost">复制到该视角</button>
+          </div>
+          <label class="check-row"><input id="maskCopyMirror" type="checkbox" checked /> 复制时水平镜像（左右/前后视角互为镜像）</label>
           <div class="hint">左键操作，按住 Alt 反向（魔棒/画笔均可）。车窗、车顶缝隙易被误选：用「魔棒排除」点一下即可剔除。完成后点「完成」返回。</div>
           <button id="btnMaskDone" class="btn primary wide">完成</button>
         </section>
@@ -87,6 +93,23 @@
           <div class="row">
             <button id="btnSyncLayers" class="btn ghost wide" title="把当前视角的全部图层复制到其他三个视角">同步图层到全部视角</button>
           </div>
+        </section>
+
+        <section class="panel-block">
+          <h3>导出设置</h3>
+          <label class="slider-row">尺寸
+            <select id="exportScale" class="mini-select">
+              <option value="1">1x（1200×800）</option>
+              <option value="2">2x（2400×1600）</option>
+              <option value="3">3x（3600×2400）</option>
+            </select>
+          </label>
+          <label class="check-row"><input id="exportTransparent" type="checkbox" checked /> 透明背景（PNG）</label>
+          <label class="check-row"><input id="exportNoCar" type="checkbox" /> 不含车体（只导出图层）</label>
+          <div class="row">
+            <button id="btnExportLayers" class="btn ghost">分层导出</button>
+          </div>
+          <div class="hint">300dpi 打印时 1x 约 10cm 宽、2x 约 20cm、3x 约 30cm。分层导出会把当前视角每个图层单独存为 PNG。</div>
         </section>
       </aside>
 

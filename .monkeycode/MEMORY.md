@@ -74,3 +74,11 @@ This file records user instructions, preferences, and teachings for reference in
   - canvas 2D 用"分割网格 + 逐格 clip + 仿射 drawImage"做透视时，1:1 分辨率下必然出现网格接缝；解法是离屏 2 倍超采样渲染后再缩回目标尺寸（网格缝在低分辨率下不可见）
   - 命令栈的 800ms 合并窗口只适用于"高频连续同类提交"（如滚轮缩放）；模式切换类离散操作（进入/退出某种编辑模式）必须 push 独立命令，否则会与栈顶同类命令合并，导致撤销回退错误的一步
   - Playwright 在 page.reload 后旧的 ElementHandle 会失效，需重新 page.$ 获取画布并重算坐标映射
+
+[Project Knowledge Summary]
+- Date: 2026-09-21
+- Context: 为导出功能（尺寸倍率 / 透明背景 / 不含车体 / 分层导出）编写 E2E 验证
+- Category: Testing Methods
+- Instructions:
+  - 浏览器下载类功能用 Playwright 的 page.on('download') 收集下载，再用 download.saveAs() 落盘，最后用 PIL 校验尺寸、色彩模式与 alpha 采样占比；分层导出会连续触发多个下载，用 downloads.length 的差值切片区分本轮文件
+  - 验证"是否绘制车体"这类叠加差异时，最干净的对照是"隐藏全部图层"后的两次导出：不含车体应 0% 不透明像素，含车体约 16% 不透明（1200×800 每隔 4 像素采样）

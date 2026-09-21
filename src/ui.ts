@@ -1,10 +1,10 @@
-import { state, currentView, markDirty, loadImg, makeLayer, duplicateLayer, findLayer, VIEW_ORDER, VIEW_LABEL, ORTHO_FRAME_1BASED, FRAMES, angleLabel } from './state';
+import { state, currentView, markDirty, loadImg, makeLayer, duplicateLayer, findLayer, VIEW_ORDER, VIEW_LABEL, ORTHO_FRAME_1BASED, FRAMES, IMG_W, IMG_H, angleLabel } from './state';
 import { autoMaskFromEdges, autoMaskFromAlpha, invertMaskCanvas, clearMaskCanvas, refineMaskExcludeDarkParts, chromaKeyCutout } from './maskedit';
 import { getRemoveBgKey, setRemoveBgKey, removeBgBlob, removeBgLocal, queryCredits, layerImageToBlob, blobToImage, canvasToImage } from './removebg';
 import { clearAll } from './store';
-import { commitAddLayer, commitRemoveLayer, commitMoveLayer, commitLayerProps, commitTransform, commitQuad, commitViewsSnapshot, runMaskMutation, undo, redo, canUndo, canRedo, snapshotView } from './history';
+import { commitAddLayer, commitRemoveLayer, commitMoveLayer, commitLayerProps, commitTransform, commitQuad, commitViewsSnapshot, runMaskMutation, undo, redo, canUndo, canRedo, snapshotView, copyCanvas } from './history';
 import type { Transform, Quad } from './types';
-import { invalidateEdgeOverlay, toImageSpace, drawStack } from './render';
+import { invalidateEdgeOverlay, toImageSpace, drawStack, drawLayerOnly } from './render';
 import { quadFromTransform } from './quad';
 import { CAR_ID } from './carlayer';
 import type { Layer, LayerKind, ViewKey } from './types';
@@ -22,6 +22,8 @@ function toast(msg: string, isError = false): void {
   window.clearTimeout((toast as unknown as { t?: number }).t);
   (toast as unknown as { t?: number }).t = window.setTimeout(() => el.classList.remove('show'), 2200);
 }
+
+const OPPOSITE_VIEW: Record<ViewKey, ViewKey> = { front: 'rear', rear: 'front', left: 'right', right: 'left' };
 
 function kindLabel(kind: LayerKind): string {
   return kind === 'background' ? '背景' : kind === 'art' ? '立绘' : kind === 'car' ? '车体' : '拉花';
@@ -379,24 +381,69 @@ function setMode(mode: 'orbit' | 'edit' | 'mask'): void {
   markDirty();
 }
 
+function downloadBlob(blob: Blob, name: string): void {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function exportScale(): number {
+  const v = Number(($('exportScale') as HTMLSelectElement).value);
+  return v === 2 || v === 3 ? v : 1;
+}
+
 function exportPng(): void {
+  const scale = exportScale();
+  const skipCar = ($('exportNoCar') as HTMLInputElement).checked;
+  const transparent = ($('exportTransparent') as HTMLInputElement).checked;
   const out = document.createElement('canvas');
-  out.width = 1200;
-  out.height = 800;
+  out.width = IMG_W * scale;
+  out.height = IMG_H * scale;
   const ctx = out.getContext('2d')!;
+  if (!transparent) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, out.width, out.height);
+  }
+  ctx.scale(scale, scale);
   const view = currentView();
   const frameIdx = state.mode === 'orbit' ? state.orbitFrame : ORTHO_FRAME_1BASED[state.currentView] - 1;
   const frame = state.frames[frameIdx];
   if (!frame) return;
-  drawStack(ctx, view, frameIdx);
+  drawStack(ctx, view, frameIdx, false, skipCar);
+  const tag = state.mode === 'orbit' ? `orbit_${frameIdx + 1}` : state.currentView;
   out.toBlob((blob) => {
     if (!blob) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `itasha_${state.mode === 'orbit' ? `orbit_${frameIdx + 1}` : state.currentView}.png`;
-    a.click();
-    toast('已导出 PNG');
+    downloadBlob(blob, `itasha_${tag}_${scale}x.png`);
+    toast(`已导出 PNG（${out.width}×${out.height}）`);
+  }, 'image/png');
+}
+
+function exportLayers(): void {
+  const scale = exportScale();
+  const view = currentView();
+  const list = view.layers.filter((l) => l.kind !== 'car' && l.visible);
+  if (list.length === 0) {
+    toast('当前视角没有可导出的图层', true);
+    return;
+  }
+  list.forEach((layer, i) => {
+    setTimeout(() => {
+      const out = document.createElement('canvas');
+      out.width = IMG_W * scale;
+      out.height = IMG_H * scale;
+      const ctx = out.getContext('2d')!;
+      ctx.scale(scale, scale);
+      drawLayerOnly(ctx, layer, view.mask);
+      out.toBlob((blob) => {
+        if (!blob) return;
+        const safe = layer.name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 40);
+        downloadBlob(blob, `itasha_${state.currentView}_${String(i + 1).padStart(2, '0')}_${safe}_${scale}x.png`);
+      }, 'image/png');
+    }, i * 400);
   });
+  toast(`正在导出 ${list.length} 个图层（逐个下载）`);
 }
 
 function renderViewFrame(viewKey: ViewKey, frameIdx0: number): HTMLCanvasElement {
@@ -494,6 +541,7 @@ export function initUI(): void {
         state.currentView = v as ViewKey;
         state.orbitFrame = ORTHO_FRAME_1BASED[v as ViewKey] - 1;
         ($('orbitSlider') as HTMLInputElement).value = String(state.orbitFrame);
+        ($('maskCopyTarget') as HTMLSelectElement).value = OPPOSITE_VIEW[v as ViewKey];
         setMode('edit');
         renderLayerList();
         refreshProps();
@@ -578,6 +626,74 @@ export function initUI(): void {
       runMaskMutation(state.currentView, '反相遮罩', () => invertMaskCanvas(view.mask!));
       markDirty();
     }
+  });
+  const maskTargetSel = $('maskCopyTarget') as HTMLSelectElement;
+  for (const vk of VIEW_ORDER) {
+    const opt = document.createElement('option');
+    opt.value = vk;
+    opt.textContent = VIEW_LABEL[vk];
+    maskTargetSel.appendChild(opt);
+  }
+  maskTargetSel.value = OPPOSITE_VIEW[state.currentView];
+  $('btnMaskMirror').addEventListener('click', () => {
+    const view = currentView();
+    if (!view.mask) {
+      toast('当前视角还没有遮罩', true);
+      return;
+    }
+    runMaskMutation(state.currentView, '水平镜像遮罩', () => {
+      const src = copyCanvas(view.mask!);
+      const mctx = view.mask!.getContext('2d')!;
+      mctx.clearRect(0, 0, IMG_W, IMG_H);
+      mctx.save();
+      mctx.translate(IMG_W, 0);
+      mctx.scale(-1, 1);
+      mctx.drawImage(src, 0, 0);
+      mctx.restore();
+      view.maskTouched = true;
+    });
+    markDirty();
+    toast('遮罩已水平镜像');
+  });
+  $('btnMaskCopy').addEventListener('click', () => {
+    const srcKey = state.currentView;
+    const srcView = state.views[srcKey];
+    if (!srcView.mask) {
+      toast('当前视角还没有遮罩', true);
+      return;
+    }
+    const target = maskTargetSel.value as ViewKey;
+    if (target === srcKey) {
+      toast('目标视角与当前视角相同', true);
+      return;
+    }
+    const mirror = ($('maskCopyMirror') as HTMLInputElement).checked;
+    const before = {
+      [srcKey]: snapshotView(srcKey),
+      [target]: snapshotView(target),
+    } as Record<string, ReturnType<typeof snapshotView>>;
+    const tmp = document.createElement('canvas');
+    tmp.width = IMG_W;
+    tmp.height = IMG_H;
+    const tmpCtx = tmp.getContext('2d')!;
+    if (mirror) {
+      tmpCtx.translate(IMG_W, 0);
+      tmpCtx.scale(-1, 1);
+    }
+    tmpCtx.drawImage(srcView.mask, 0, 0);
+    const tv = state.views[target];
+    if (!tv.mask) {
+      tv.mask = document.createElement('canvas');
+      tv.mask.width = IMG_W;
+      tv.mask.height = IMG_H;
+    }
+    const tctx = tv.mask.getContext('2d')!;
+    tctx.clearRect(0, 0, IMG_W, IMG_H);
+    tctx.drawImage(tmp, 0, 0);
+    tv.maskTouched = true;
+    commitViewsSnapshot(`复制遮罩到${VIEW_LABEL[target]}`, [srcKey, target], before);
+    markDirty();
+    toast(`已把遮罩复制到${VIEW_LABEL[target]}${mirror ? '（水平镜像）' : ''}`);
   });
   $('btnMaskDone').addEventListener('click', () => setMode('edit'));
 
@@ -733,6 +849,7 @@ export function initUI(): void {
 
   $('btnExport').addEventListener('click', exportPng);
   $('btnExportMulti').addEventListener('click', exportMultiView);
+  $('btnExportLayers').addEventListener('click', exportLayers);
 
   const refreshHistoryButtons = () => {
     ($('btnUndo') as HTMLButtonElement).disabled = !canUndo();

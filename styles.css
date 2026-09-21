@@ -114,6 +114,19 @@ aside {
 .tool-grid { display: flex; gap: 6px; margin-bottom: 10px; }
 .tool-grid .btn { flex: 1; }
 
+.mini-select {
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+
 .slider-row {
   display: flex;
   align-items: center;
