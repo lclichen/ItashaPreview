@@ -362,7 +362,7 @@ function setMode(mode: 'orbit' | 'edit' | 'mask'): void {
     const vk = state.currentView;
     const view = state.views[vk];
     if (!view.mask) {
-      toast('正在生成初始遮罩（Sobel 边缘检测）…');
+      toast('正在生成初始遮罩…');
       ensureMask(vk);
       toast(`已为「${VIEW_LABEL[vk]}」生成遮罩，可用画笔 / 魔棒修正`);
     }

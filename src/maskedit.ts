@@ -1,6 +1,10 @@
 export interface AutoMaskOptions {
-  threshold?: number;
-  dilate?: number;
+  alphaHigh?: number;
+  alphaLow?: number;
+  close?: number;
+  smooth?: number;
+  keepRatio?: number;
+  maxHoleRatio?: number;
 }
 
 function getPixels(img: HTMLImageElement): { data: ImageData; w: number; h: number } {
@@ -124,29 +128,130 @@ function floodOutside(walls: Uint8Array, w: number, h: number): Uint8Array {
   return outside;
 }
 
+function largestComponent(src: Uint8Array, w: number, h: number): Uint8Array {
+  const labels = connectedComponents(src, w, h);
+  const sizes = new Map<number, number>();
+  for (let i = 0; i < labels.length; i++) {
+    const l = labels[i];
+    if (l) sizes.set(l, (sizes.get(l) ?? 0) + 1);
+  }
+  let best = 0;
+  let bestSize = 0;
+  for (const [l, size] of sizes) {
+    if (size > bestSize) {
+      bestSize = size;
+      best = l;
+    }
+  }
+  const out = new Uint8Array(src.length);
+  if (!best) return out;
+  for (let i = 0; i < labels.length; i++) out[i] = labels[i] === best ? 1 : 0;
+  return out;
+}
+
+function growWithin(seed: Uint8Array, allow: Uint8Array, w: number, h: number): Uint8Array {
+  const out = new Uint8Array(seed.length);
+  const stack = new Int32Array(seed.length);
+  let sp = 0;
+  const push = (i: number) => {
+    if (allow[i] && !out[i]) {
+      out[i] = 1;
+      stack[sp++] = i;
+    }
+  };
+  for (let i = 0; i < seed.length; i++) if (seed[i]) push(i);
+  while (sp > 0) {
+    const i = stack[--sp];
+    const x = i % w;
+    const y = (i / w) | 0;
+    if (x > 0) push(i - 1);
+    if (x < w - 1) push(i + 1);
+    if (y > 0) push(i - w);
+    if (y < h - 1) push(i + w);
+  }
+  return out;
+}
+
+function fillHoles(src: Uint8Array, w: number, h: number, maxRatio: number): Uint8Array {
+  const holes = new Uint8Array(src.length);
+  for (let i = 0; i < src.length; i++) holes[i] = src[i] ? 0 : 1;
+  const outside = floodOutside(src, w, h);
+  const labels = connectedComponents(holes, w, h);
+  const stats = new Map<number, { size: number; out: boolean }>();
+  for (let i = 0; i < labels.length; i++) {
+    const l = labels[i];
+    if (!l) continue;
+    let st = stats.get(l);
+    if (!st) {
+      st = { size: 0, out: false };
+      stats.set(l, st);
+    }
+    st.size++;
+    if (outside[i]) st.out = true;
+  }
+  const out = src.slice();
+  const maxHole = maxRatio * w * h;
+  for (let i = 0; i < labels.length; i++) {
+    const l = labels[i];
+    if (!l) continue;
+    const st = stats.get(l)!;
+    if (!st.out && st.size <= maxHole) out[i] = 1;
+  }
+  return out;
+}
+
+function smoothMask(src: Uint8Array, w: number, h: number, iters: number): Uint8Array {
+  let cur = src;
+  for (let k = 0; k < iters; k++) {
+    const next = new Uint8Array(cur.length);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let count = 0;
+        let total = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= h) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= w) continue;
+            total++;
+            count += cur[yy * w + xx];
+          }
+        }
+        next[y * w + x] = count * 2 > total ? 1 : 0;
+      }
+    }
+    cur = next;
+  }
+  return cur;
+}
+
 export function autoMaskFromEdges(
   img: HTMLImageElement,
   opts: AutoMaskOptions = {},
 ): HTMLCanvasElement {
   const { data: imgData, w, h } = getPixels(img);
   const d = imgData.data;
-  const mag = sobelMagnitude(imgData, w, h);
-  let maxMag = 0;
-  for (let i = 0; i < mag.length; i++) if (mag[i] > maxMag) maxMag = mag[i];
-  const thresh = Math.min(opts.threshold ?? otsuThreshold(mag), maxMag * 0.08);
-  const edges = new Uint8Array(w * h);
-  for (let i = 0; i < mag.length; i++) {
-    const alpha = d[i * 4 + 3];
-    edges[i] = mag[i] > thresh || alpha < 30 ? 1 : 0;
+  const n = w * h;
+  const alpha = new Uint8Array(n);
+  for (let i = 0, p = 3; i < n; i++, p += 4) alpha[i] = d[p];
+
+  const alphaHigh = opts.alphaHigh ?? 128;
+  const alphaLow = opts.alphaLow ?? 24;
+  const seedStrong = new Uint8Array(n);
+  const allow = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    seedStrong[i] = alpha[i] >= alphaHigh ? 1 : 0;
+    allow[i] = alpha[i] >= alphaLow ? 1 : 0;
   }
-  const walls = dilateMask(edges, w, h, opts.dilate ?? 2);
-  const outside = floodOutside(walls, w, h);
-  const mask = new Uint8Array(w * h);
-  for (let i = 0; i < mask.length; i++) {
-    mask[i] = outside[i] || d[i * 4 + 3] < 10 ? 0 : 1;
-  }
-  const cleaned = openMask(mask, w, h, 2);
-  return maskToCanvas(cleaned, w, h);
+
+  let mask = growWithin(largestComponent(seedStrong, w, h), allow, w, h);
+  mask = closeMask(mask, w, h, opts.close ?? 2);
+  mask = fillHoles(mask, w, h, opts.maxHoleRatio ?? 0.004);
+  mask = smoothMask(mask, w, h, opts.smooth ?? 1);
+  mask = keepMainComponents(mask, w, h, opts.keepRatio ?? 0.02);
+  mask = openMask(mask, w, h, 1);
+  return maskToCanvas(mask, w, h);
 }
 
 function connectedComponents(flags: Uint8Array, w: number, h: number): Int32Array {
@@ -227,12 +332,14 @@ export function refineMaskExcludeDarkParts(
     if (y > st.maxY) st.maxY = y;
   }
 
+  const bottomZone = yBottom - Math.round(h * 0.14);
   const removeLabels = new Set<number>();
   for (const [l, st] of stats) {
     const avgL = st.lumaSum / st.size;
     const touchesBottom = st.maxY >= yBottom - 8;
+    const nearBottom = st.maxY >= bottomZone;
     const big = st.size > w * h * 0.012;
-    if ((touchesBottom && avgL < bodyLuma * 0.75) || (big && avgL < darkT)) {
+    if ((touchesBottom && avgL < bodyLuma * 0.7) || (big && avgL < darkT && nearBottom)) {
       removeLabels.add(l);
     }
   }

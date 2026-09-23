@@ -52,8 +52,8 @@
           <label class="slider-row">魔棒容差 <input id="wandTolerance" type="range" min="4" max="120" value="32" /><span id="wandToleranceVal">32</span></label>
           <label class="slider-row">剔轮灵敏度 <input id="wheelSensitivity" type="range" min="20" max="90" value="55" /><span id="wheelSensitivityVal">55</span></label>
           <div class="row">
-            <button id="btnAutoEdge" class="btn">边缘检测生成</button>
-            <button id="btnAutoAlpha" class="btn ghost">Alpha 生成</button>
+            <button id="btnAutoEdge" class="btn" title="自动提取车身轮廓（基于抠图 Alpha + 形态学精修）">自动生成</button>
+            <button id="btnAutoAlpha" class="btn ghost" title="仅按 Alpha 阈值粗提，不做精修">Alpha 生成</button>
           </div>
           <div class="row">
             <button id="btnMaskClear" class="btn ghost">清空</button>

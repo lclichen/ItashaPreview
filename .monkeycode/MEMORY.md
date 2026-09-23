@@ -82,3 +82,12 @@ This file records user instructions, preferences, and teachings for reference in
 - Instructions:
   - 浏览器下载类功能用 Playwright 的 page.on('download') 收集下载，再用 download.saveAs() 落盘，最后用 PIL 校验尺寸、色彩模式与 alpha 采样占比；分层导出会连续触发多个下载，用 downloads.length 的差值切片区分本轮文件
   - 验证"是否绘制车体"这类叠加差异时，最干净的对照是"隐藏全部图层"后的两次导出：不含车体应 0% 不透明像素，含车体约 16% 不透明（1200×800 每隔 4 像素采样）
+
+[Project Knowledge Summary]
+- Date: 2026-09-23
+- Context: 改进自动遮罩提取质量（重写 autoMaskFromEdges、收紧 refineMaskExcludeDarkParts）
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 车图已由懂车帝抠好（约 83.5% 像素 Alpha=0，半透明过渡仅约 1%），车身轮廓应以 Alpha 主体为准；旧的 Sobel + 膨胀墙 + 边界洪泛在车底会形成闭合环，把地面/阴影区域误判为车体（典型症状：车下方多出一块"地板"遮罩）
+  - refineMaskExcludeDarkParts 按全局亮度剔除暗块时必须叠加空间约束（块的 maxY 需接近车体最底行），否则车顶、车窗、天窗等大面积暗部会被一起剔除
+  - 自动遮罩单帧耗时约 0.3-1.5s；"同步图层到全部视角"会连续为缺失遮罩的视角各生成一次，可能阻塞 UI 数秒
