@@ -109,6 +109,12 @@
           <div class="row">
             <button id="btnExportLayers" class="btn ghost">分层导出</button>
           </div>
+          <div class="row">
+            <button id="btnExportProject" class="btn ghost">导出工程</button>
+            <button id="btnImportProject" class="btn ghost">导入工程</button>
+          </div>
+          <input id="projectInput" type="file" accept="application/json,.json" style="display:none" />
+          <div class="hint">工程文件包含四个视角的图层属性与遮罩，可备份或分享给他人（不含车图本身）。</div>
           <div class="hint">300dpi 打印时 1x 约 10cm 宽、2x 约 20cm、3x 约 30cm。分层导出会把当前视角每个图层单独存为 PNG。</div>
         </section>
       </aside>
@@ -141,6 +147,26 @@
             <label class="slider-row">不透明度 <input id="propOpacity" type="range" min="0" max="100" value="100" /><span id="propOpacityVal">100</span></label>
             <label class="slider-row">缩放 <input id="propScale" type="range" min="5" max="300" value="100" /><span id="propScaleVal">100</span></label>
             <label class="slider-row">旋转 <input id="propRotation" type="range" min="-180" max="180" value="0" /><span id="propRotationVal">0</span></label>
+            <label class="slider-row">混合
+              <select id="propBlend" class="mini-select">
+                <option value="source-over">正常</option>
+                <option value="multiply">正片叠底</option>
+                <option value="screen">滤色</option>
+                <option value="overlay">叠加</option>
+                <option value="soft-light">柔光</option>
+                <option value="hard-light">强光</option>
+                <option value="darken">变暗</option>
+                <option value="lighten">变亮</option>
+                <option value="color-dodge">颜色减淡</option>
+                <option value="color-burn">颜色加深</option>
+                <option value="hue">色相</option>
+                <option value="saturation">饱和度</option>
+                <option value="color">颜色</option>
+                <option value="luminosity">明度</option>
+                <option value="difference">差值</option>
+                <option value="exclusion">排除</option>
+              </select>
+            </label>
             <label class="check-row"><input id="propClip" type="checkbox" checked /> 裁剪到可编辑区域</label>
             <div class="row">
               <button id="btnLayerDup" class="btn small">复制图层</button>

@@ -91,3 +91,12 @@ This file records user instructions, preferences, and teachings for reference in
   - 车图已由懂车帝抠好（约 83.5% 像素 Alpha=0，半透明过渡仅约 1%），车身轮廓应以 Alpha 主体为准；旧的 Sobel + 膨胀墙 + 边界洪泛在车底会形成闭合环，把地面/阴影区域误判为车体（典型症状：车下方多出一块"地板"遮罩）
   - refineMaskExcludeDarkParts 按全局亮度剔除暗块时必须叠加空间约束（块的 maxY 需接近车体最底行），否则车顶、车窗、天窗等大面积暗部会被一起剔除
   - 自动遮罩单帧耗时约 0.3-1.5s；"同步图层到全部视角"会连续为缺失遮罩的视角各生成一次，可能阻塞 UI 数秒
+
+[Project Knowledge Summary]
+- Date: 2026-09-25
+- Context: 增加图层混合模式与工程导入/导出
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 图层混合模式（multiply / screen 等）要求车体与图层在同一个离屏画布上合成；沿用旧写法（遇到车体层就先把已累积图层刷到主画布、再单独绘制车体）时图层与车漆之间不会发生混合
+  - 白底立绘配合 multiply 叠在车漆上时白色区域不改变车漆，用户可不抠图直接贴，这是痛车贴膜的常见用法
+  - 工程文件为单个 JSON：{app:'itasha-studio', version, exportedAt, images:{key:dataURL}, views:{front|right|rear|left:{layers:[…], mask}}}；图层图片按 HTMLImageElement 引用去重（同一图片跨四视角共享时只存一份，webp 0.95 编码），遮罩用 PNG 无损；导入后需 clearHistory() 并刷新图层列表与属性面板

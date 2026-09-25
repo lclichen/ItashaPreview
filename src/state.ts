@@ -138,6 +138,7 @@ export function makeLayer(
     opacity: 1,
     clipToMask: kind !== 'background',
     flipX: false,
+    blend: 'source-over',
     transform: defaultTransform(kind, img),
     quad: null,
   };

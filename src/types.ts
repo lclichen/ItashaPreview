@@ -28,6 +28,7 @@ export interface Layer {
   opacity: number;
   clipToMask: boolean;
   flipX: boolean;
+  blend: string;
   transform: Transform;
   quad: Quad | null;
 }

@@ -26,6 +26,7 @@ export function makeCarLayer(): Layer {
     opacity: 1,
     clipToMask: false,
     flipX: false,
+    blend: 'source-over',
     transform: { x: 0, y: 0, scale: 1, rotation: 0 },
     quad: null,
   };

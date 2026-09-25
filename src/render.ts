@@ -70,6 +70,7 @@ export function toImageSpace(clientX: number, clientY: number): { x: number; y: 
 function drawLayerLocal(c: CanvasRenderingContext2D, layer: Layer): void {
   c.save();
   c.globalAlpha = layer.opacity;
+  c.globalCompositeOperation = (layer.blend || 'source-over') as GlobalCompositeOperation;
   if (layer.quad) {
     const qc = quadRenderCanvas(layer);
     if (qc) c.drawImage(qc, 0, 0, IMG_W, IMG_H);
@@ -97,7 +98,10 @@ function drawLayerClipped(c: CanvasRenderingContext2D, layer: Layer, mask: HTMLC
   clipCtx.globalCompositeOperation = 'destination-in';
   clipCtx.drawImage(mask, 0, 0);
   clipCtx.globalCompositeOperation = 'source-over';
+  c.save();
+  c.globalCompositeOperation = (layer.blend || 'source-over') as GlobalCompositeOperation;
   c.drawImage(clipCanvas, 0, 0);
+  c.restore();
 }
 
 export function drawStack(
@@ -109,20 +113,17 @@ export function drawStack(
 ): void {
   const visible = view.layers.filter((l) => l.visible);
   compCtx.clearRect(0, 0, IMG_W, IMG_H);
+  const hasCarLayer = visible.some((l) => l.kind === 'car');
+  if (!skipCar && !hasCarLayer) drawCarFrame(compCtx, frameIdx0, dim);
   for (const l of visible) {
     if (l.kind === 'car') {
       if (skipCar) continue;
-      c.drawImage(compCanvas, 0, 0);
-      compCtx.clearRect(0, 0, IMG_W, IMG_H);
-      drawCarFrame(c, frameIdx0, dim);
+      drawCarFrame(compCtx, frameIdx0, dim);
     } else {
       drawLayerClipped(compCtx, l, view.mask);
     }
   }
   c.drawImage(compCanvas, 0, 0);
-  if (!skipCar && !visible.some((l) => l.kind === 'car')) {
-    drawCarFrame(c, frameIdx0, dim);
-  }
 }
 
 export function drawLayerOnly(c: CanvasRenderingContext2D, layer: Layer, mask: HTMLCanvasElement | null): void {

@@ -1,8 +1,8 @@
 import { state, currentView, markDirty, loadImg, makeLayer, duplicateLayer, findLayer, VIEW_ORDER, VIEW_LABEL, ORTHO_FRAME_1BASED, FRAMES, IMG_W, IMG_H, angleLabel } from './state';
 import { autoMaskFromEdges, autoMaskFromAlpha, invertMaskCanvas, clearMaskCanvas, refineMaskExcludeDarkParts, chromaKeyCutout } from './maskedit';
 import { getRemoveBgKey, setRemoveBgKey, removeBgBlob, removeBgLocal, queryCredits, layerImageToBlob, blobToImage, canvasToImage } from './removebg';
-import { clearAll } from './store';
-import { commitAddLayer, commitRemoveLayer, commitMoveLayer, commitLayerProps, commitTransform, commitQuad, commitViewsSnapshot, runMaskMutation, undo, redo, canUndo, canRedo, snapshotView, copyCanvas } from './history';
+import { clearAll, exportProject, importProject } from './store';
+import { commitAddLayer, commitRemoveLayer, commitMoveLayer, commitLayerProps, commitTransform, commitQuad, commitViewsSnapshot, runMaskMutation, undo, redo, canUndo, canRedo, snapshotView, copyCanvas, clearHistory } from './history';
 import type { Transform, Quad } from './types';
 import { invalidateEdgeOverlay, toImageSpace, drawStack, drawLayerOnly } from './render';
 import { quadFromTransform } from './quad';
@@ -326,8 +326,9 @@ function refreshProps(): void {
   ($('propRotation') as HTMLInputElement).value = String(Math.round(layer.transform.rotation));
   $('propRotationVal').textContent = String(Math.round(layer.transform.rotation));
   ($('propClip') as HTMLInputElement).checked = layer.clipToMask;
+  ($('propBlend') as HTMLSelectElement).value = layer.blend || 'source-over';
   const locked = !!layer.locked;
-  for (const id of ['propOpacity', 'propScale', 'propRotation', 'propClip', 'btnLayerFlip', 'btnLayerQuad', 'btnLayerUp', 'btnLayerDown', 'btnLayerDel']) {
+  for (const id of ['propOpacity', 'propScale', 'propRotation', 'propClip', 'propBlend', 'btnLayerFlip', 'btnLayerQuad', 'btnLayerUp', 'btnLayerDown', 'btnLayerDel']) {
     ($(id) as HTMLInputElement).disabled = locked;
   }
   const quadMode = !!layer.quad;
@@ -851,6 +852,47 @@ export function initUI(): void {
   $('btnExportMulti').addEventListener('click', exportMultiView);
   $('btnExportLayers').addEventListener('click', exportLayers);
 
+  const projectInput = $('projectInput') as HTMLInputElement;
+  $('btnExportProject').addEventListener('click', async () => {
+    try {
+      const blob = await exportProject(state.views);
+      const d = new Date();
+      const p = (n: number) => String(n).padStart(2, '0');
+      const name = `itasha-project-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+      downloadBlob(blob, name);
+      toast('工程已导出（含四视角图层与遮罩）');
+    } catch (e) {
+      toast(`导出失败：${e instanceof Error ? e.message : '未知错误'}`, true);
+    }
+  });
+  $('btnImportProject').addEventListener('click', () => {
+    projectInput.value = '';
+    projectInput.click();
+  });
+  projectInput.addEventListener('change', async () => {
+    const file = projectInput.files?.[0];
+    if (!file) return;
+    try {
+      const data = await importProject(file);
+      for (const vk of VIEW_ORDER) {
+        state.views[vk].layers = data[vk].layers;
+        state.views[vk].mask = data[vk].mask;
+        state.views[vk].maskTouched = !!data[vk].mask;
+      }
+      state.selectedLayerId = null;
+      clearHistory();
+      invalidateEdgeOverlay();
+      markDirty();
+      refreshLayersUI();
+      refreshProps();
+      toast('工程已导入');
+    } catch (e) {
+      toast(`导入失败：${e instanceof Error ? e.message : '未知错误'}`, true);
+    } finally {
+      projectInput.value = '';
+    }
+  });
+
   const refreshHistoryButtons = () => {
     ($('btnUndo') as HTMLButtonElement).disabled = !canUndo();
     ($('btnRedo') as HTMLButtonElement).disabled = !canRedo();
@@ -952,6 +994,14 @@ export function initUI(): void {
     const before = layer.clipToMask;
     layer.clipToMask = ($('propClip') as HTMLInputElement).checked;
     commitLayerProps(state.currentView, layer.id, { clipToMask: before }, { clipToMask: layer.clipToMask }, '切换裁剪');
+    markDirty();
+  });
+  $('propBlend').addEventListener('change', () => {
+    const layer = state.selectedLayerId ? findLayer(state.selectedLayerId) : null;
+    if (!layer) return;
+    const before = layer.blend || 'source-over';
+    layer.blend = ($('propBlend') as HTMLSelectElement).value;
+    commitLayerProps(state.currentView, layer.id, { blend: before }, { blend: layer.blend }, '混合模式');
     markDirty();
   });
   $('btnLayerDup').addEventListener('click', () => duplicateSelectedLayer());
