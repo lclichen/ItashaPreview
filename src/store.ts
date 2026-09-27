@@ -3,7 +3,9 @@ import { makeCarLayer } from './carlayer';
 
 const DB_NAME = 'itasha-studio';
 const DB_VERSION = 1;
-const VIEWS: ViewKey[] = ['front', 'right', 'rear', 'left'];
+const VIEWS: ViewKey[] = ['front', 'right', 'rear', 'left', 'hood'];
+
+type ViewData = { layers: Layer[]; mask: HTMLCanvasElement | null; baseImg: HTMLImageElement | null };
 
 interface StoredLayer {
   id: string;
@@ -23,6 +25,7 @@ interface StoredLayer {
 interface StoredView {
   layers: StoredLayer[];
   maskBlob: Blob | null;
+  baseBlob?: Blob | null;
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -65,6 +68,15 @@ function blobToImage(blob: Blob): Promise<HTMLImageElement> {
 
 const imgBlobCache = new WeakMap<HTMLImageElement, Blob>();
 
+async function imageToBlobCached(img: HTMLImageElement): Promise<Blob> {
+  let blob = imgBlobCache.get(img);
+  if (!blob) {
+    blob = await imageToBlob(img);
+    imgBlobCache.set(img, blob);
+  }
+  return blob;
+}
+
 async function serializeLayer(layer: Layer): Promise<StoredLayer | null> {
   if (layer.kind === 'car') {
     return {
@@ -82,11 +94,7 @@ async function serializeLayer(layer: Layer): Promise<StoredLayer | null> {
       imgBlob: null,
     };
   }
-  let blob = imgBlobCache.get(layer.img);
-  if (!blob) {
-    blob = await imageToBlob(layer.img);
-    imgBlobCache.set(layer.img, blob);
-  }
+  const blob = await imageToBlobCached(layer.img);
   return {
     id: layer.id,
     name: layer.name,
@@ -105,7 +113,7 @@ async function serializeLayer(layer: Layer): Promise<StoredLayer | null> {
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function queuePersistAll(getViews: () => Record<ViewKey, { layers: Layer[]; mask: HTMLCanvasElement | null }>): void {
+export function queuePersistAll(getViews: () => Record<ViewKey, ViewData>): void {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = null;
@@ -113,15 +121,14 @@ export function queuePersistAll(getViews: () => Record<ViewKey, { layers: Layer[
   }, 800);
 }
 
-async function persistAll(
-  views: Record<ViewKey, { layers: Layer[]; mask: HTMLCanvasElement | null }>,
-): Promise<void> {
+async function persistAll(views: Record<ViewKey, ViewData>): Promise<void> {
   const records: [ViewKey, StoredView][] = [];
   for (const vk of VIEWS) {
     const v = views[vk];
     const layers = (await Promise.all(v.layers.map(serializeLayer))).filter((s): s is StoredLayer => s !== null);
     const maskBlob = v.mask ? await canvasToBlob(v.mask) : null;
-    records.push([vk, { layers, maskBlob }]);
+    const baseBlob = v.baseImg ? await imageToBlobCached(v.baseImg) : null;
+    records.push([vk, { layers, maskBlob, baseBlob }]);
   }
   const db = await openDB();
   try {
@@ -139,7 +146,7 @@ async function persistAll(
   }
 }
 
-export async function loadAll(): Promise<Record<ViewKey, { layers: Layer[]; mask: HTMLCanvasElement | null }>> {
+export async function loadAll(): Promise<Record<ViewKey, ViewData>> {
   const db = await openDB();
   try {
     const raw = await new Promise<Record<string, StoredView>>((resolve, reject) => {
@@ -158,12 +165,14 @@ export async function loadAll(): Promise<Record<ViewKey, { layers: Layer[]; mask
       };
       req.onerror = () => reject(req.error);
     });
+    const emptyView = (): ViewData => ({ layers: [makeCarLayer()], mask: null, baseImg: null });
     const result = {
-      front: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
-      right: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
-      rear: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
-      left: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
-    } as Record<ViewKey, { layers: Layer[]; mask: HTMLCanvasElement | null }>;
+      front: emptyView(),
+      right: emptyView(),
+      rear: emptyView(),
+      left: emptyView(),
+      hood: emptyView(),
+    } as Record<ViewKey, ViewData>;
     for (const vk of VIEWS) {
       const sv = raw[vk];
       if (!sv) continue;
@@ -208,6 +217,13 @@ export async function loadAll(): Promise<Record<ViewKey, { layers: Layer[]; mask
           /* skip broken mask */
         }
       }
+      if (sv.baseBlob) {
+        try {
+          result[vk].baseImg = await blobToImage(sv.baseBlob);
+        } catch {
+          /* skip broken base image */
+        }
+      }
     }
     return result;
   } finally {
@@ -247,6 +263,7 @@ interface ProjectLayerRecord {
 interface ProjectViewRecord {
   layers: ProjectLayerRecord[];
   mask: string | null;
+  base?: string | null;
 }
 
 export interface ProjectFile {
@@ -279,9 +296,7 @@ function dataURLToImage(url: string, cache: Map<string, HTMLImageElement>): Prom
   });
 }
 
-export async function exportProject(
-  views: Record<ViewKey, { layers: Layer[]; mask: HTMLCanvasElement | null }>,
-): Promise<Blob> {
+export async function exportProject(views: Record<ViewKey, ViewData>): Promise<Blob> {
   const images: Record<string, string> = {};
   const keyByImg = new Map<HTMLImageElement, string>();
   let seq = 0;
@@ -318,14 +333,16 @@ export async function exportProject(
       quad: l.quad ? (l.quad.map((p) => ({ ...p })) as Layer['quad']) : null,
       img: l.kind === 'car' ? null : keyOf(l.img),
     }));
-    out.views[vk] = { layers, mask: v.mask ? v.mask.toDataURL('image/png') : null };
+    out.views[vk] = {
+      layers,
+      mask: v.mask ? v.mask.toDataURL('image/png') : null,
+      base: v.baseImg ? keyOf(v.baseImg) : null,
+    };
   }
   return new Blob([JSON.stringify(out)], { type: 'application/json' });
 }
 
-export async function importProject(
-  file: Blob,
-): Promise<Record<ViewKey, { layers: Layer[]; mask: HTMLCanvasElement | null }>> {
+export async function importProject(file: Blob): Promise<Record<ViewKey, ViewData>> {
   let parsed: ProjectFile;
   try {
     parsed = JSON.parse(await file.text()) as ProjectFile;
@@ -337,12 +354,14 @@ export async function importProject(
   }
   const images = parsed.images ?? {};
   const imgCache = new Map<string, HTMLImageElement>();
+  const emptyView = (): ViewData => ({ layers: [makeCarLayer()], mask: null, baseImg: null });
   const result = {
-    front: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
-    right: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
-    rear: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
-    left: { layers: [makeCarLayer()] as Layer[], mask: null as HTMLCanvasElement | null },
-  } as Record<ViewKey, { layers: Layer[]; mask: HTMLCanvasElement | null }>;
+    front: emptyView(),
+    right: emptyView(),
+    rear: emptyView(),
+    left: emptyView(),
+    hood: emptyView(),
+  } as Record<ViewKey, ViewData>;
   for (const vk of VIEWS) {
     const pv = parsed.views[vk];
     if (!pv) continue;
@@ -378,7 +397,12 @@ export async function importProject(
       c.getContext('2d')!.drawImage(img, 0, 0);
       mask = c;
     }
-    result[vk] = { layers, mask };
+    let baseImg: HTMLImageElement | null = null;
+    if (pv.base) {
+      const url = images[pv.base];
+      if (url) baseImg = await dataURLToImage(url, imgCache);
+    }
+    result[vk] = { layers, mask, baseImg };
   }
   return result;
 }

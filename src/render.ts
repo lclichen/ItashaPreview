@@ -1,5 +1,5 @@
-import type { Layer, ViewTransform } from './types';
-import { IMG_W, IMG_H, state, currentView, frameSrc, angleLabel, ORTHO_FRAME_1BASED, VIEW_ORDER, markDirty } from './state';
+import type { Layer, ViewKey, ViewTransform } from './types';
+import { IMG_W, IMG_H, state, currentView, baseImageOf, frameSrc, angleLabel, ORTHO_FRAME_1BASED, VIEW_ORDER, markDirty } from './state';
 import { edgeOverlayCanvas } from './maskedit';
 import { quadRenderCanvas } from './quad';
 
@@ -110,15 +110,17 @@ export function drawStack(
   frameIdx0: number,
   dim = false,
   skipCar = false,
+  viewKey: ViewKey = state.currentView,
+  forceFrame = false,
 ): void {
   const visible = view.layers.filter((l) => l.visible);
   compCtx.clearRect(0, 0, IMG_W, IMG_H);
   const hasCarLayer = visible.some((l) => l.kind === 'car');
-  if (!skipCar && !hasCarLayer) drawCarFrame(compCtx, frameIdx0, dim);
+  if (!skipCar && !hasCarLayer) drawBase(compCtx, viewKey, frameIdx0, dim, forceFrame);
   for (const l of visible) {
     if (l.kind === 'car') {
       if (skipCar) continue;
-      drawCarFrame(compCtx, frameIdx0, dim);
+      drawBase(compCtx, viewKey, frameIdx0, dim, forceFrame);
     } else {
       drawLayerClipped(compCtx, l, view.mask);
     }
@@ -130,8 +132,14 @@ export function drawLayerOnly(c: CanvasRenderingContext2D, layer: Layer, mask: H
   drawLayerClipped(c, layer, mask);
 }
 
-function drawCarFrame(c: CanvasRenderingContext2D, idx0: number, dim = false): void {
-  const img = state.frames[idx0] ?? state.frames[ORTHO_FRAME_1BASED[state.currentView] - 1];
+function drawBase(
+  c: CanvasRenderingContext2D,
+  viewKey: ViewKey,
+  idx0: number,
+  dim = false,
+  forceFrame = false,
+): void {
+  const img = forceFrame ? state.frames[idx0] : baseImageOf(viewKey) ?? state.frames[idx0];
   if (!img) return;
   if (dim) {
     c.save();
@@ -158,7 +166,7 @@ function drawMaskOverlay(c: CanvasRenderingContext2D): void {
 }
 
 function ensureEdgeOverlay(): void {
-  const img = state.frames[ORTHO_FRAME_1BASED[state.currentView] - 1];
+  const img = baseImageOf(state.currentView);
   if (!img) return;
   if (edgeOverlay && edgeOverlayFor === state.currentView) return;
   edgeOverlay = edgeOverlayCanvas(img);
@@ -261,12 +269,12 @@ export function rotateHandlePoint(ih: number): [number, number] {
 }
 
 function renderOrbit(c: CanvasRenderingContext2D): void {
-  drawStack(c, currentView(), state.orbitFrame);
+  drawStack(c, currentView(), state.orbitFrame, false, false, state.currentView, true);
 }
 
 function renderEdit(c: CanvasRenderingContext2D): void {
   const view = currentView();
-  drawStack(c, view, ORTHO_FRAME_1BASED[state.currentView] - 1);
+  drawStack(c, view, ORTHO_FRAME_1BASED[state.currentView] - 1, false, false, state.currentView);
   drawSelection(c);
   drawSnapGuides(c);
 }
@@ -293,7 +301,7 @@ function drawSnapGuides(c: CanvasRenderingContext2D): void {
 }
 
 function renderMask(c: CanvasRenderingContext2D): void {
-  drawCarFrame(c, ORTHO_FRAME_1BASED[state.currentView] - 1, true);
+  drawBase(c, state.currentView, ORTHO_FRAME_1BASED[state.currentView] - 1, true);
   drawMaskOverlay(c);
   if (state.showEdgeOverlay) drawEdgeOverlay(c);
   if (state.brushCursor && state.maskTool !== 'wand') {
@@ -327,7 +335,7 @@ export function render(): void {
 }
 
 function updateHud(): void {
-  const viewNames = { front: '正前', right: '正右', rear: '正后', left: '左侧' } as const;
+  const viewNames = { front: '正前', right: '正右', rear: '正后', left: '左侧', hood: '前盖' } as const;
   if (state.mode === 'orbit') {
     hudAngle.textContent = `360 预览 · ${angleLabel(state.orbitFrame)}`;
     hudHint.textContent = '底部滑条切换角度，四个正交视角可点击顶部标签进入编辑';

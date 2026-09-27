@@ -15,6 +15,7 @@
         <button class="view-tab" data-view="right">右侧</button>
         <button class="view-tab" data-view="rear">正后</button>
         <button class="view-tab" data-view="left">左侧</button>
+        <button class="view-tab" data-view="hood">前盖</button>
         <button class="view-tab active" data-view="orbit">360 预览</button>
       </div>
       <div class="top-actions">
@@ -35,6 +36,16 @@
             <button id="btnEdgeOverlay" class="btn ghost">边缘叠加</button>
           </div>
           <div class="hint">先为每个视角生成遮罩，再贴图。遮罩决定立绘 / 拉花能显示在车的哪些部位。</div>
+        </section>
+
+        <section class="panel-block" id="basePanel">
+          <h3>前盖底图</h3>
+          <div class="row">
+            <button id="btnUploadBase" class="btn">上传前盖图</button>
+            <button id="btnClearBase" class="btn ghost">清除底图</button>
+          </div>
+          <input id="baseInput" type="file" accept="image/*" style="display:none" />
+          <div class="hint" id="baseInfo">切到「前盖」视角后可上传自己的引擎盖/车头照片作为底图，再在其上贴图设计并单独导出。</div>
         </section>
 
         <section class="panel-block" id="maskTools" style="display:none">

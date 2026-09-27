@@ -100,3 +100,13 @@ This file records user instructions, preferences, and teachings for reference in
   - 图层混合模式（multiply / screen 等）要求车体与图层在同一个离屏画布上合成；沿用旧写法（遇到车体层就先把已累积图层刷到主画布、再单独绘制车体）时图层与车漆之间不会发生混合
   - 白底立绘配合 multiply 叠在车漆上时白色区域不改变车漆，用户可不抠图直接贴，这是痛车贴膜的常见用法
   - 工程文件为单个 JSON：{app:'itasha-studio', version, exportedAt, images:{key:dataURL}, views:{front|right|rear|left:{layers:[…], mask}}}；图层图片按 HTMLImageElement 引用去重（同一图片跨四视角共享时只存一份，webp 0.95 编码），遮罩用 PNG 无损；导入后需 clearHistory() 并刷新图层列表与属性面板
+
+[Project Knowledge Summary]
+- Date: 2026-09-27
+- Context: 增加「前盖」视角（允许用户单独上传引擎盖/车头照片作为底图）时踩到的坑
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 上传图片生成的 blob URL 不能在加载完成后 revokeObjectURL：图片解码后仍被缩略图 <img> 使用，revoke 会让缩略图重新请求该 blob，控制台报 net::ERR_FILE_NOT_FOUND
+  - 无对应车图帧的视角（前盖）不能沿用基于 Alpha 的自动遮罩：照片通常整幅不透明，自动遮罩会按暗部误剔区域；这类视角的默认遮罩应直接铺满全幅，交给用户手动编辑
+  - 新增无帧视角后，所有 ORTHO_FRAME_1BASED[...]-1 的索引运算都要加保护（无帧视角得到 -1），并统一通过 baseImageOf() 取底图（自定义底图优先，否则用车图帧）；360 旋转预览必须强制使用车图帧，否则会拿自定义底图当旋转底图
+  - E2E 中点击「清空缓存」会触发页面自动 reload：必须 waitForLoadState('networkidle') + waitForSelector('.view-tab…') 之后再操作，否则点击落在未渲染完成的 DOM 上会静默丢失

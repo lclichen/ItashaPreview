@@ -66,7 +66,7 @@ function afterApply(cmd: Command): void {
   const view = (cmd as { view?: ViewKey }).view;
   if (view && view !== state.currentView) {
     state.currentView = view;
-    state.orbitFrame = ORTHO_FRAME_1BASED[view] - 1;
+    state.orbitFrame = Math.max(0, ORTHO_FRAME_1BASED[view] - 1);
     (document.getElementById('orbitSlider') as HTMLInputElement).value = String(state.orbitFrame);
     document.querySelectorAll('.view-tab').forEach((el) => {
       const tab = el as HTMLButtonElement;
@@ -276,11 +276,12 @@ export function commitMaskRegion(view: ViewKey, beforeCanvas: HTMLCanvasElement,
 export interface ViewSnapshot {
   layers: Layer[];
   mask: HTMLCanvasElement | null;
+  baseImg: HTMLImageElement | null;
 }
 
 export function snapshotView(view: ViewKey): ViewSnapshot {
   const v = state.views[view];
-  return { layers: v.layers.map(cloneLayer), mask: v.mask ? copyCanvas(v.mask) : null };
+  return { layers: v.layers.map(cloneLayer), mask: v.mask ? copyCanvas(v.mask) : null, baseImg: v.baseImg ?? null };
 }
 
 function restoreViewSnapshot(view: ViewKey, snap: ViewSnapshot): void {
@@ -288,6 +289,7 @@ function restoreViewSnapshot(view: ViewKey, snap: ViewSnapshot): void {
   v.layers = snap.layers.map(cloneLayer);
   v.mask = snap.mask ? copyCanvas(snap.mask) : null;
   v.maskTouched = !!snap.mask;
+  v.baseImg = snap.baseImg ?? null;
 }
 
 export function commitViewsSnapshot(label: string, views: ViewKey[], before: Record<string, ViewSnapshot>): void {

@@ -1,4 +1,4 @@
-import { state, frameSrc, FRAMES, markDirty, ORTHO_FRAME_1BASED, VIEW_ORDER, setRestored } from './state';
+import { state, frameSrc, FRAMES, markDirty, ORTHO_FRAME_1BASED, ORTHO_VIEWS, VIEW_ORDER, setRestored } from './state';
 import { initCanvasUI } from './canvasui';
 import { initUI, startAutoPlay, toast, refreshLayersUI } from './ui';
 import { startLoop } from './render';
@@ -16,6 +16,9 @@ async function restoreCache(): Promise<void> {
       if (data[vk].mask) {
         state.views[vk].mask = data[vk].mask;
         state.views[vk].maskTouched = true;
+      }
+      if (data[vk].baseImg) {
+        state.views[vk].baseImg = data[vk].baseImg;
       }
     }
     if (count > 0) {
@@ -56,7 +59,7 @@ async function main(): Promise<void> {
   startAutoPlay();
   await restoreCache();
   await loadFrames();
-  const first = VIEW_ORDER.find((vk) => state.frames[ORTHO_FRAME_1BASED[vk] - 1]) ?? 'front';
+  const first = ORTHO_VIEWS.find((vk) => state.frames[ORTHO_FRAME_1BASED[vk] - 1]) ?? 'front';
   state.currentView = first;
   state.orbitFrame = ORTHO_FRAME_1BASED[first] - 1;
   (document.getElementById('orbitSlider') as HTMLInputElement).value = String(state.orbitFrame);

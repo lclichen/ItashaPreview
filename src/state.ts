@@ -6,20 +6,24 @@ export const IMG_W = 1200;
 export const IMG_H = 800;
 export const FRAMES = 36;
 
+export const ORTHO_VIEWS: ViewKey[] = ['front', 'right', 'rear', 'left'];
+
 export const ORTHO_FRAME_1BASED: Record<ViewKey, number> = {
   front: 5,
   right: 14,
   rear: 23,
   left: 32,
+  hood: 0,
 };
 
-export const VIEW_ORDER: ViewKey[] = ['front', 'right', 'rear', 'left'];
+export const VIEW_ORDER: ViewKey[] = [...ORTHO_VIEWS, 'hood'];
 
 export const VIEW_LABEL: Record<ViewKey, string> = {
   front: '正前',
   right: '右侧',
   rear: '正后',
   left: '左侧',
+  hood: '前盖',
 };
 
 export function frameSrc(idx0: number): string {
@@ -47,7 +51,7 @@ export function uid(): string {
 }
 
 function initView(): ViewState {
-  return { layers: [makeCarLayer()], mask: null, maskTouched: false };
+  return { layers: [makeCarLayer()], mask: null, maskTouched: false, baseImg: null };
 }
 
 export const state = {
@@ -61,6 +65,7 @@ export const state = {
     right: initView(),
     rear: initView(),
     left: initView(),
+    hood: initView(),
   } as Record<ViewKey, ViewState>,
   selectedLayerId: null as string | null,
   maskTool: 'brush' as 'brush' | 'eraser' | 'wand',
@@ -79,6 +84,17 @@ export const state = {
 
 export function currentView(): ViewState {
   return state.views[state.currentView];
+}
+
+export function baseImageOf(viewKey: ViewKey): HTMLImageElement | null {
+  const v = state.views[viewKey];
+  if (v.baseImg) return v.baseImg;
+  const idx = ORTHO_FRAME_1BASED[viewKey];
+  return idx > 0 ? state.frames[idx - 1] : null;
+}
+
+export function isCustomView(viewKey: ViewKey): boolean {
+  return ORTHO_FRAME_1BASED[viewKey] === 0;
 }
 
 let restored = false;

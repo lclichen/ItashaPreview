@@ -1,4 +1,4 @@
-export type ViewKey = 'front' | 'right' | 'rear' | 'left';
+export type ViewKey = 'front' | 'right' | 'rear' | 'left' | 'hood';
 export type Mode = 'orbit' | 'edit' | 'mask';
 export type LayerKind = 'car' | 'background' | 'art' | 'livery';
 export type MaskTool = 'brush' | 'eraser' | 'wand';
@@ -37,6 +37,7 @@ export interface ViewState {
   layers: Layer[];
   mask: HTMLCanvasElement | null;
   maskTouched: boolean;
+  baseImg: HTMLImageElement | null;
 }
 
 export interface ViewTransform {

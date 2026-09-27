@@ -1,4 +1,4 @@
-import { state, currentView, markDirty, ORTHO_FRAME_1BASED, IMG_W, IMG_H } from './state';
+import { state, currentView, markDirty, baseImageOf, ORTHO_FRAME_1BASED, IMG_W, IMG_H } from './state';
 import { mainCanvas, toImageSpace, getViewTransform, cornerPoints } from './render';
 import { stampLine, wandMask, uint8ToMaskCanvas } from './maskedit';
 import { commitTransform, commitQuad, commitMaskRegion, copyCanvas, maskBBoxOfRegion } from './history';
@@ -269,7 +269,7 @@ function applyMaskTool(ix: number, iy: number, lx: number, ly: number): void {
   if (!view.mask) return;
   const mctx = view.mask.getContext('2d')!;
   if (state.maskTool === 'wand') {
-    const frameImg = state.frames[ORTHO_FRAME_1BASED[state.currentView] - 1];
+    const frameImg = baseImageOf(state.currentView);
     if (!frameImg) return;
     const before = copyCanvas(view.mask);
     const res = wandMask(frameImg, ix, iy, state.wandTolerance);
