@@ -178,6 +178,34 @@
                 <option value="exclusion">排除</option>
               </select>
             </label>
+            <div class="nudge-block">
+              <div class="nudge-head">
+                <span class="field-label">像素微调</span>
+                <select id="nudgeStep" class="mini-select" title="方向键与微调按钮每次移动的距离">
+                  <option value="0.1">0.1 px</option>
+                  <option value="0.5">0.5 px</option>
+                  <option value="1" selected>1 px</option>
+                  <option value="5">5 px</option>
+                  <option value="10">10 px</option>
+                </select>
+              </div>
+              <div class="nudge-pad">
+                <span></span>
+                <button id="nudgeUp" class="btn small nudge" title="上移">↑</button>
+                <span></span>
+                <button id="nudgeLeft" class="btn small nudge" title="左移">←</button>
+                <span class="nudge-dot"></span>
+                <button id="nudgeRight" class="btn small nudge" title="右移">→</button>
+                <span></span>
+                <button id="nudgeDown" class="btn small nudge" title="下移">↓</button>
+                <span></span>
+              </div>
+              <div class="row coord-row">
+                <label>X <input id="propX" type="number" step="1" /></label>
+                <label>Y <input id="propY" type="number" step="1" /></label>
+              </div>
+              <div class="hint">方向键按所选步长移动；Shift 为 10px，Alt 为 0.1px。按住方向按钮可连续移动。</div>
+            </div>
             <label class="check-row"><input id="propClip" type="checkbox" checked /> 裁剪到可编辑区域</label>
             <div class="row">
               <button id="btnLayerDup" class="btn small">复制图层</button>

@@ -194,6 +194,12 @@ function nudgeSelectedLayer(dx: number, dy: number): void {
   markDirty();
 }
 
+function nudgeStepValue(): number {
+  const el = document.getElementById('nudgeStep') as HTMLSelectElement | null;
+  const v = el ? Number(el.value) : 1;
+  return v > 0 ? v : 1;
+}
+
 function renderLayerList(): void {
   const view = currentView();
   const ul = $('layerList') as HTMLUListElement;
@@ -333,8 +339,9 @@ function refreshProps(): void {
   $('propRotationVal').textContent = String(Math.round(layer.transform.rotation));
   ($('propClip') as HTMLInputElement).checked = layer.clipToMask;
   ($('propBlend') as HTMLSelectElement).value = layer.blend || 'source-over';
+  updateCoordFields(layer);
   const locked = !!layer.locked;
-  for (const id of ['propOpacity', 'propScale', 'propRotation', 'propClip', 'propBlend', 'btnLayerFlip', 'btnLayerQuad', 'btnLayerUp', 'btnLayerDown', 'btnLayerDel']) {
+  for (const id of ['propOpacity', 'propScale', 'propRotation', 'propClip', 'propBlend', 'propX', 'propY', 'nudgeUp', 'nudgeDown', 'nudgeLeft', 'nudgeRight', 'btnLayerFlip', 'btnLayerQuad', 'btnLayerUp', 'btnLayerDown', 'btnLayerDel']) {
     ($(id) as HTMLInputElement).disabled = locked;
   }
   const quadMode = !!layer.quad;
@@ -343,15 +350,26 @@ function refreshProps(): void {
   if (quadMode) {
     ($('propScale') as HTMLInputElement).disabled = true;
     ($('propRotation') as HTMLInputElement).disabled = true;
+    ($('propX') as HTMLInputElement).disabled = true;
+    ($('propY') as HTMLInputElement).disabled = true;
     ($('propScale') as HTMLInputElement).title = '四角透视模式下不可用';
     ($('propRotation') as HTMLInputElement).title = '四角透视模式下不可用';
+    ($('propX') as HTMLInputElement).title = '四角透视模式下不可用，可用方向键整体移动';
+    ($('propY') as HTMLInputElement).title = '四角透视模式下不可用，可用方向键整体移动';
   } else {
     ($('propScale') as HTMLInputElement).title = '';
     ($('propRotation') as HTMLInputElement).title = '';
+    ($('propX') as HTMLInputElement).title = '';
+    ($('propY') as HTMLInputElement).title = '';
   }
   $('btnLayerRestore').style.display = layer.originalImg && !locked ? '' : 'none';
   $('btnLayerDup').style.display = '';
   $('btnLayerDel').title = locked ? '图层已锁定，请先解锁' : '删除图层';
+}
+
+function updateCoordFields(layer: Layer): void {
+  ($('propX') as HTMLInputElement).value = String(Math.round(layer.transform.x * 100) / 100);
+  ($('propY') as HTMLInputElement).value = String(Math.round(layer.transform.y * 100) / 100);
 }
 
 function onLayerTransformed(): void {
@@ -361,6 +379,7 @@ function onLayerTransformed(): void {
     $('propScaleVal').textContent = String(Math.round(layer.transform.scale * 100));
     ($('propRotation') as HTMLInputElement).value = String(Math.round(layer.transform.rotation));
     $('propRotationVal').textContent = String(Math.round(layer.transform.rotation));
+    updateCoordFields(layer);
   }
 }
 
@@ -1085,6 +1104,60 @@ export function initUI(): void {
     commitLayerProps(state.currentView, layer.id, { blend: before }, { blend: layer.blend }, '混合模式');
     markDirty();
   });
+  const doNudge = (dx: number, dy: number): void => {
+    const step = nudgeStepValue();
+    nudgeSelectedLayer(dx * step, dy * step);
+  };
+  const bindNudge = (id: string, dx: number, dy: number): void => {
+    const btn = $(id) as HTMLButtonElement;
+    let holdTimer: number | null = null;
+    let repeatTimer: number | null = null;
+    const stop = (): void => {
+      if (holdTimer !== null) window.clearTimeout(holdTimer);
+      if (repeatTimer !== null) window.clearInterval(repeatTimer);
+      holdTimer = null;
+      repeatTimer = null;
+    };
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      doNudge(dx, dy);
+      holdTimer = window.setTimeout(() => {
+        repeatTimer = window.setInterval(() => doNudge(dx, dy), 55);
+      }, 320);
+    });
+    btn.addEventListener('pointerup', stop);
+    btn.addEventListener('pointerleave', stop);
+    btn.addEventListener('pointercancel', stop);
+    window.addEventListener('pointerup', stop);
+  };
+  bindNudge('nudgeUp', 0, -1);
+  bindNudge('nudgeDown', 0, 1);
+  bindNudge('nudgeLeft', -1, 0);
+  bindNudge('nudgeRight', 1, 0);
+
+  const coordInput = (id: string, axis: 'x' | 'y'): void => {
+    const input = $(id) as HTMLInputElement;
+    let snap: Transform | null = null;
+    input.addEventListener('focus', () => {
+      const l = selectedEditableLayer();
+      snap = l ? { ...l.transform } : null;
+    });
+    input.addEventListener('change', () => {
+      const l = selectedEditableLayer();
+      const before = snap;
+      snap = null;
+      if (!l || l.locked || !before) return;
+      const v = Number(input.value);
+      if (!Number.isFinite(v)) return;
+      l.transform[axis] = v;
+      commitTransform(state.currentView, l.id, before, { ...l.transform });
+      document.dispatchEvent(new CustomEvent('layer-transformed'));
+      markDirty();
+    });
+  };
+  coordInput('propX', 'x');
+  coordInput('propY', 'y');
+
   $('btnLayerDup').addEventListener('click', () => duplicateSelectedLayer());
   $('btnLayerUp').addEventListener('click', () => {
     if (state.selectedLayerId) moveLayer(state.selectedLayerId, 1);
@@ -1155,7 +1228,7 @@ export function initUI(): void {
     if (e.key.startsWith('Arrow') && state.selectedLayerId && !e.ctrlKey && !e.metaKey) {
       const l = selectedEditableLayer();
       if (!l || l.locked) return;
-      const step = e.shiftKey ? 10 : 1;
+      const step = e.altKey ? 0.1 : e.shiftKey ? 10 : nudgeStepValue();
       const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
       const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
       nudgeSelectedLayer(dx, dy);

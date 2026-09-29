@@ -110,3 +110,12 @@ This file records user instructions, preferences, and teachings for reference in
   - 无对应车图帧的视角（前盖）不能沿用基于 Alpha 的自动遮罩：照片通常整幅不透明，自动遮罩会按暗部误剔区域；这类视角的默认遮罩应直接铺满全幅，交给用户手动编辑
   - 新增无帧视角后，所有 ORTHO_FRAME_1BASED[...]-1 的索引运算都要加保护（无帧视角得到 -1），并统一通过 baseImageOf() 取底图（自定义底图优先，否则用车图帧）；360 旋转预览必须强制使用车图帧，否则会拿自定义底图当旋转底图
   - E2E 中点击「清空缓存」会触发页面自动 reload：必须 waitForLoadState('networkidle') + waitForSelector('.view-tab…') 之后再操作，否则点击落在未渲染完成的 DOM 上会静默丢失
+
+[Project Knowledge Summary]
+- Date: 2026-09-29
+- Context: 为图层增加像素级微调面板（步长下拉 + 十字方向按钮 + X/Y 坐标输入）时踩到的坑
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - 微调（方向键 / 长按按钮重复）走 commitTransform 的 800ms 合并窗口，因此撤销一次会回退整段连续移动，这是期望语义；但紧接着长按之后直接修改 X/Y 输入框会被合并进同一条命令，E2E 里必须先等待 >800ms 再输入
+  - 长按重复不能用 click 实现：pointerdown 里 preventDefault 后手动 setTimeout 起首延迟 + setInterval 重复，并在 pointerup / pointerleave / pointercancel / window pointerup 上统一清理，否则窗口外松开会导致持续移动
+  - 坐标输入框的值要同时用 refreshProps 与 layer-transformed 事件刷新，否则拖拽或微调后显示的坐标会滞后
